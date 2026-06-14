@@ -61,3 +61,32 @@ python -m venv .venv
 ```
 
 The executable bundle is written to `dist\tdl`.
+
+## Automated Release Script
+
+Use `scripts\release.ps1` to test, build, package, commit, push, tag, create a
+GitHub Release, and upload the zip asset in one command.
+
+```powershell
+.\scripts\release.ps1 `
+  -CommitMessage "fix: describe your change" `
+  -CommitBody "Optional longer commit body." `
+  -Tag "v2.2.6-enhanced.4" `
+  -ReleaseName "v2.2.6 Enhanced Windows Build 4" `
+  -ReleaseBody "Optional release notes."
+```
+
+Defaults:
+
+- Remote: `enhanced`
+- Branch: `master`
+- Repository: `ack528/telegram_media_downloader_enhanced`
+- Asset: `dist\tdl-windows-fixed.zip`
+- Build command: `.\.venv\Scripts\python.exe -m PyInstaller media_downloader.spec --clean --noconfirm`
+
+Useful switches:
+
+- `-SkipTests`: skip the unit test and syntax check step.
+- `-NoBuild`: reuse an existing zip asset instead of rebuilding.
+- `-Prerelease`: mark the GitHub Release as a prerelease.
+- `-Draft`: create the GitHub Release as a draft.
