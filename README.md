@@ -1,5 +1,5 @@
 
-<h1 align="center">Telegram Media Downloader</h1>
+<h1 align="center">Telegram Media Downloader Enhanced</h1>
 
 <p align="center">
 <a href="https://deepwiki.com/tangyoha/telegram_media_downloader"><img alt="DeepWiki" src="https://img.shields.io/badge/DeepWiki-Documentation-blue"></a>
@@ -21,6 +21,50 @@
   <span> & </span>
   <a href="https://t.me/TeegramMediaDownload">Telegram Community</a>
 </h3>
+
+## Enhanced fork
+
+This fork is based on
+[tangyoha/telegram_media_downloader](https://github.com/tangyoha/telegram_media_downloader)
+and adds Windows-friendly fixes for long-running downloads and packaged
+executables.
+
+### Enhanced changes
+
+- Sanitizes Telegram chat titles and generated file names before using them as
+  Windows paths.
+  - Windows-reserved characters such as `/ \ : * ? " < > |` are replaced with
+    `_`.
+  - Control characters and symbol-only emoji are removed.
+  - Empty sanitized names fall back to `untitled`.
+- Uses the same sanitized chat directory for temporary downloads and final files.
+- When running from `tdl.exe`, reads `config.yaml` and `data.yaml` from the same
+  directory as the executable.
+- Resolves relative `save_path` values from the executable directory.
+- Disables Windows console QuickEdit mode at startup to avoid accidental console
+  selection pausing download tasks until Enter/Esc is pressed.
+- Suppresses Pyrogram's noisy `reply_parameters` deprecation warning.
+- Updates the PyInstaller spec so packaging no longer references missing parser
+  cache files.
+
+### Windows executable usage
+
+1. Extract the packaged `tdl` folder.
+2. Edit `config.yaml` in the same directory as `tdl.exe`.
+3. Run `tdl.exe`.
+
+Downloaded files, temporary files, logs, and sessions are created relative to the
+executable directory unless `save_path` is set to an absolute path.
+
+### Build the executable
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
+.\.venv\Scripts\python.exe -m PyInstaller media_downloader.spec --clean --noconfirm
+```
+
+The executable bundle is written to `dist\tdl`.
 
 ## Overview
 > Support two default running
@@ -61,16 +105,16 @@
 For *nix os distributions with `make` availability
 
 ```sh
-git clone https://github.com/tangyoha/telegram_media_downloader.git
-cd telegram_media_downloader
+git clone https://github.com/ack528/telegram_media_downloader_enhanced.git
+cd telegram_media_downloader_enhanced
 make install
 ```
 
 For Windows which doesn't have `make` inbuilt
 
 ```sh
-git clone https://github.com/tangyoha/telegram_media_downloader.git
-cd telegram_media_downloader
+git clone https://github.com/ack528/telegram_media_downloader_enhanced.git
+cd telegram_media_downloader_enhanced
 pip3 install -r requirements.txt
 ```
 
