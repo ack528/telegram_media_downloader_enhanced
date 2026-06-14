@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import sys
 import time
 from asyncio import Lock
 from concurrent.futures import ThreadPoolExecutor
@@ -21,6 +22,13 @@ from utils.meta_data import MetaData
 
 _yaml = yaml.YAML()
 # pylint: disable = R0902
+
+
+def get_runtime_base_path() -> str:
+    """Return the directory used for config, data, and default output paths."""
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.abspath(".")
 
 
 class DownloadStatus(Enum):
@@ -363,8 +371,9 @@ class Application:
             Application Name
 
         """
-        self.config_file: str = config_file
-        self.app_data_file: str = app_data_file
+        self.base_path = get_runtime_base_path()
+        self.config_file: str = os.path.join(self.base_path, config_file)
+        self.app_data_file: str = os.path.join(self.base_path, app_data_file)
         self.application_name: str = application_name
         self.download_filter = Filter()
         self.is_running = True
@@ -373,8 +382,8 @@ class Application:
 
         self.chat_download_config: dict = {}
 
-        self.save_path = os.path.join(os.path.abspath("."), "downloads")
-        self.temp_save_path = os.path.join(os.path.abspath("."), "temp")
+        self.save_path = os.path.join(self.base_path, "downloads")
+        self.temp_save_path = os.path.join(self.base_path, "temp")
         self.api_id: str = ""
         self.api_hash: str = ""
         self.bot_token: str = ""
@@ -388,8 +397,8 @@ class Application:
         self.file_path_prefix: List[str] = ["chat_title", "media_datetime"]
         self.file_name_prefix: List[str] = ["message_id", "file_name"]
         self.file_name_prefix_split: str = " - "
-        self.log_file_path = os.path.join(os.path.abspath("."), "log")
-        self.session_file_path = os.path.join(os.path.abspath("."), "sessions")
+        self.log_file_path = os.path.join(self.base_path, "log")
+        self.session_file_path = os.path.join(self.base_path, "sessions")
         self.cloud_drive_config = CloudDriveConfig()
         self.hide_file_name = False
         self.caption_name_dict: dict = {}
@@ -442,7 +451,10 @@ class Application:
         # pylint: disable = R0912
         # TODO: judge the storage if enough,and provide more path
         if _config.get("save_path") is not None:
-            self.save_path = _config["save_path"]
+            save_path = _config["save_path"]
+            if not os.path.isabs(save_path):
+                save_path = os.path.join(self.base_path, save_path)
+            self.save_path = save_path
 
         self.api_id = _config["api_id"]
         self.api_hash = _config["api_hash"]
@@ -911,19 +923,14 @@ class Application:
 
     def load_config(self):
         """Load user config"""
-        with open(
-            os.path.join(os.path.abspath("."), self.config_file), encoding="utf-8"
-        ) as f:
+        with open(self.config_file, encoding="utf-8") as f:
             config = _yaml.load(f.read())
             if config:
                 self.config = config
                 self.assign_config(self.config)
 
-        if os.path.exists(os.path.join(os.path.abspath("."), self.app_data_file)):
-            with open(
-                os.path.join(os.path.abspath("."), self.app_data_file),
-                encoding="utf-8",
-            ) as f:
+        if os.path.exists(self.app_data_file):
+            with open(self.app_data_file, encoding="utf-8") as f:
                 app_data = _yaml.load(f.read())
                 if app_data:
                     self.app_data = app_data

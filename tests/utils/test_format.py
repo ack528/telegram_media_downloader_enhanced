@@ -239,17 +239,16 @@ class TestValidateTitle(unittest.TestCase):
             ("Greater>Than", "Greater_Than"),
             ("Pipe|Symbol", "Pipe_Symbol"),
             ("Multi\nLine", "Multi_Line"),
+            ("🔔老司機帶帶我(外流_劇情片)", "老司機帶帶我(外流_劇情片)"),
+            ("🔔", "untitled"),
         ]
 
         for title, expected in test_cases:
             with self.subTest(title=title, expected=expected):
                 self.assertEqual(validate_title(title), expected)
 
-    @patch("utils.format.re.sub")
-    def test_mock_re_sub(self, mock_re_sub):
-        title = "Invalid/Title"
-        mock_re_sub.return_value = "Mocked_Title"
+    def test_strips_windows_trailing_dot_and_space(self):
+        title = "Invalid Title. "
 
         result = validate_title(title)
-        self.assertEqual(result, "Mocked_Title")
-        mock_re_sub.assert_called_once_with(r"[/\\:*?\"<>|\n]", "_", title)
+        self.assertEqual(result, "Invalid Title")

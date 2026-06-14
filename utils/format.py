@@ -270,7 +270,14 @@ def validate_title(title: str) -> str:
 
     r_str = r"[/\\:*?\"<>|\n]"  # '/ \ : * ? " < > |'
     new_title = re.sub(r_str, "_", title)
-    return new_title
+    new_title = "".join(
+        char
+        for char in new_title
+        if not unicodedata.category(char).startswith("C")
+        and unicodedata.category(char) != "So"
+    )
+    new_title = new_title.strip(" .")
+    return new_title or "untitled"
 
 
 def create_progress_bar(progress, total_bars=10):

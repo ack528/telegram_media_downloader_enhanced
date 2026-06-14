@@ -29,7 +29,7 @@ from module.pyrogram_extension import (
 )
 from module.web import init_web
 from utils.format import truncate_filename, validate_title
-from utils.log import LogFilter
+from utils.log import LogFilter, disable_quick_edit_mode
 from utils.meta import print_meta
 from utils.meta_data import MetaData
 
@@ -39,6 +39,8 @@ logging.basicConfig(
     datefmt="[%X]",
     handlers=[RichHandler()],
 )
+
+disable_quick_edit_mode()
 
 CONFIG_NAME = "config.yaml"
 DATA_FILE_NAME = "data.yaml"
@@ -50,6 +52,7 @@ RETRY_TIME_OUT = 3
 
 logging.getLogger("pyrogram.session.session").addFilter(LogFilter())
 logging.getLogger("pyrogram.client").addFilter(LogFilter())
+logging.getLogger("pyrogram").addFilter(LogFilter())
 
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
 
