@@ -18,6 +18,11 @@ as a packaged executable.
 - Suppress Pyrogram's noisy `reply_parameters` deprecation warning.
 - Update the PyInstaller spec so packaging no longer references missing parser
   cache files.
+- Resume interrupted downloads from retained `.temp` files on the next run.
+- Persist queued and finished task state immediately, allowing unexpected exits
+  to recover unfinished message ids from `data.yaml`.
+- Retry interrupted downloads up to five times with incremental backoff and
+  refreshed Telegram message references.
 
 ## Usage
 
@@ -27,6 +32,18 @@ as a packaged executable.
 
 Downloaded files, temporary files, logs, and sessions are created relative to the
 executable directory unless `save_path` is set to an absolute path.
+
+## Resume and Recovery
+
+Downloads are written to `temp/<chat title>/<file>.temp` first. If the program is
+closed unexpectedly, the partial file is kept. On the next run, the downloader
+aligns the temp file to Telegram's 1 MB chunk boundary and continues from the
+last safe chunk instead of starting over.
+
+Queued and in-progress message ids are written to `data.yaml`, so unfinished
+tasks are retried automatically after restart. Completed final files are checked
+by size before being skipped; partial final files are moved back into the temp
+resume path.
 
 ## Build
 

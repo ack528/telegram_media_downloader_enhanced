@@ -7,6 +7,7 @@ import time
 from typing import List, Optional, Tuple, Union
 
 import pyrogram
+from pyrogram.file_id import FileId
 from loguru import logger
 from pyrogram.types import Audio, Document, Photo, Video, VideoNote, Voice
 from rich.logging import RichHandler
@@ -49,6 +50,8 @@ app = Application(CONFIG_NAME, DATA_FILE_NAME, APPLICATION_NAME)
 
 queue: asyncio.Queue = asyncio.Queue()
 RETRY_TIME_OUT = 3
+DOWNLOAD_RETRY_COUNT = 5
+DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 
 logging.getLogger("pyrogram.session.session").addFilter(LogFilter())
 logging.getLogger("pyrogram.client").addFilter(LogFilter())
@@ -99,6 +102,75 @@ def _move_to_download_path(temp_download_path: str, download_path: str):
     directory, _ = os.path.split(download_path)
     os.makedirs(directory, exist_ok=True)
     shutil.move(temp_download_path, download_path)
+
+
+def _temp_download_path(temp_file_name: str) -> str:
+    """Return the resumable temporary download path."""
+    return f"{temp_file_name}.temp"
+
+
+def _align_resume_size(file_path: str, media_size: int) -> int:
+    """Align an existing temp file to Telegram's 1MB download chunks."""
+    if not os.path.exists(file_path):
+        return 0
+
+    file_size = os.path.getsize(file_path)
+    if media_size and file_size > media_size:
+        logger.warning("Discard invalid oversized temp file: {}", file_path)
+        os.remove(file_path)
+        return 0
+
+    aligned_size = (file_size // DOWNLOAD_CHUNK_SIZE) * DOWNLOAD_CHUNK_SIZE
+    if aligned_size != file_size:
+        with open(file_path, "ab") as temp_file:
+            temp_file.truncate(aligned_size)
+    return aligned_size
+
+
+def _recover_existing_download(
+    file_name: str, temp_file_name: str, media_size: int, ui_file_name: str
+) -> Optional[DownloadStatus]:
+    """Recover finished or partial files left by an interrupted run."""
+    if _is_exist(file_name):
+        file_size = os.path.getsize(file_name)
+        if media_size == 0 or file_size == media_size:
+            logger.info(
+                f"id file {ui_file_name} {_t('already download,download skipped')}.\n"
+            )
+            return DownloadStatus.SkipDownload
+
+        if media_size and 0 < file_size < media_size:
+            os.makedirs(os.path.dirname(_temp_download_path(temp_file_name)), exist_ok=True)
+            os.replace(file_name, _temp_download_path(temp_file_name))
+            logger.warning(
+                "Resume partial final file: {} ({}/{})",
+                ui_file_name,
+                file_size,
+                media_size,
+            )
+        else:
+            logger.warning(
+                "Remove invalid existing file: {} ({}/{})",
+                ui_file_name,
+                file_size,
+                media_size,
+            )
+            os.remove(file_name)
+
+    if _is_exist(temp_file_name):
+        temp_size = os.path.getsize(temp_file_name)
+        if media_size == 0 or temp_size == media_size:
+            _check_download_finish(media_size, temp_file_name, ui_file_name)
+            _move_to_download_path(temp_file_name, file_name)
+            return DownloadStatus.SuccessDownload
+
+        if media_size and 0 < temp_size < media_size:
+            os.makedirs(os.path.dirname(_temp_download_path(temp_file_name)), exist_ok=True)
+            os.replace(temp_file_name, _temp_download_path(temp_file_name))
+        else:
+            os.remove(temp_file_name)
+
+    return None
 
 
 def _check_timeout(retry: int, _: int):
@@ -268,6 +340,7 @@ async def add_download_task(
     node.download_status[message.id] = DownloadStatus.Downloading
     await queue.put((message, node))
     node.total_task += 1
+    app.update_config(True)
     return True
 
 
@@ -298,6 +371,56 @@ async def save_msg_to_file(
     return DownloadStatus.SuccessDownload, file_name
 
 
+async def _download_media_with_resume(
+    client: pyrogram.client.Client,
+    media_obj,
+    temp_file_name: str,
+    media_size: int,
+    progress,
+    progress_args: tuple,
+) -> str:
+    """Download media and keep partial temp files for future resume."""
+    os.makedirs(os.path.dirname(temp_file_name), exist_ok=True)
+    temp_download_path = _temp_download_path(temp_file_name)
+    resume_size = _align_resume_size(temp_download_path, media_size)
+
+    if media_size and resume_size == media_size:
+        shutil.move(temp_download_path, temp_file_name)
+        return temp_file_name
+
+    if resume_size:
+        logger.info(
+            "Resuming download from {} MB: {}",
+            round(resume_size / DOWNLOAD_CHUNK_SIZE, 2),
+            temp_file_name,
+        )
+
+    file_id_obj = FileId.decode(media_obj.file_id)
+    offset = resume_size // DOWNLOAD_CHUNK_SIZE
+
+    with open(temp_download_path, "ab") as temp_file:
+        async for chunk in client.get_file(
+            file_id_obj,
+            media_size,
+            0,
+            offset,
+            progress,
+            progress_args,
+        ):
+            if chunk:
+                temp_file.write(chunk)
+
+    if media_size:
+        downloaded_size = os.path.getsize(temp_download_path)
+        if downloaded_size != media_size:
+            raise IOError(
+                f"incomplete download: {downloaded_size}/{media_size} bytes"
+            )
+
+    shutil.move(temp_download_path, temp_file_name)
+    return temp_file_name
+
+
 async def download_task(
     client: pyrogram.Client, message: pyrogram.types.Message, node: TaskNode
 ):
@@ -314,6 +437,7 @@ async def download_task(
         app.set_download_id(node, message.id, download_status)
 
     node.download_status[message.id] = download_status
+    app.update_config(True)
 
     file_size = os.path.getsize(file_name) if file_name else 0
 
@@ -414,15 +538,13 @@ async def download_media(
                 ui_file_name = f"****{os.path.splitext(file_name)[-1]}"
 
             if _can_download(_type, file_formats, file_format):
-                if _is_exist(file_name):
-                    file_size = os.path.getsize(file_name)
-                    if file_size or file_size == media_size:
-                        logger.info(
-                            f"id={message.id} {ui_file_name} "
-                            f"{_t('already download,download skipped')}.\n"
-                        )
-
-                        return DownloadStatus.SkipDownload, None
+                recovered_status = _recover_existing_download(
+                    file_name, temp_file_name, media_size, ui_file_name
+                )
+                if recovered_status is DownloadStatus.SkipDownload:
+                    return DownloadStatus.SkipDownload, None
+                if recovered_status is DownloadStatus.SuccessDownload:
+                    return DownloadStatus.SuccessDownload, file_name
             else:
                 return DownloadStatus.SkipDownload, None
 
@@ -439,13 +561,15 @@ async def download_media(
 
     message_id = message.id
 
-    for retry in range(3):
+    for retry in range(DOWNLOAD_RETRY_COUNT):
         try:
-            temp_download_path = await client.download_media(
-                message,
-                file_name=temp_file_name,
-                progress=update_download_status,
-                progress_args=(
+            temp_download_path = await _download_media_with_resume(
+                client,
+                _media,
+                temp_file_name,
+                media_size,
+                update_download_status,
+                (
                     message_id,
                     ui_file_name,
                     task_start_time,
@@ -464,37 +588,32 @@ async def download_media(
             logger.warning(
                 f"Message[{message.id}]: {_t('file reference expired, refetching')}..."
             )
-            await asyncio.sleep(RETRY_TIME_OUT)
-            message = await fetch_message(client, message)
-            if _check_timeout(retry, message.id):
-                # pylint: disable = C0301
-                logger.error(
-                    f"Message[{message.id}]: "
-                    f"{_t('file reference expired for 3 retries, download skipped.')}"
-                )
         except pyrogram.errors.exceptions.flood_420.FloodWait as wait_err:
             await asyncio.sleep(wait_err.value)
             logger.warning("Message[{}]: FlowWait {}", message.id, wait_err.value)
-            _check_timeout(retry, message.id)
-        except TypeError:
-            # pylint: disable = C0301
+        except TypeError as e:
             logger.warning(
                 f"{_t('Timeout Error occurred when downloading Message')}[{message.id}], "
-                f"{_t('retrying after')} {RETRY_TIME_OUT} {_t('seconds')}"
+                f"{_t('retrying after')} {RETRY_TIME_OUT} {_t('seconds')}: {e}"
             )
-            await asyncio.sleep(RETRY_TIME_OUT)
-            if _check_timeout(retry, message.id):
-                logger.error(
-                    f"Message[{message.id}]: {_t('Timing out after 3 reties, download skipped.')}"
-                )
         except Exception as e:
-            # pylint: disable = C0301
-            logger.error(
-                f"Message[{message.id}]: "
-                f"{_t('could not be downloaded due to following exception')}:\n[{e}].",
-                exc_info=True,
+            logger.warning(
+                "Message[{}]: download interrupted on attempt {}/{}: {}",
+                message.id,
+                retry + 1,
+                DOWNLOAD_RETRY_COUNT,
+                e,
             )
+
+        if retry + 1 >= DOWNLOAD_RETRY_COUNT:
             break
+
+        await asyncio.sleep(RETRY_TIME_OUT * (retry + 1))
+        message = await fetch_message(client, message)
+        _media = getattr(message, _type, None)
+        if _media is None:
+            break
+        media_size = getattr(_media, "file_size", media_size)
 
     return DownloadStatus.FailedDownload, None
 
