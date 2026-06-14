@@ -338,6 +338,7 @@ async def add_download_task(
     if message.empty:
         return False
     node.download_status[message.id] = DownloadStatus.Downloading
+    app.mark_download_pending(node, message.id)
     await queue.put((message, node))
     node.total_task += 1
     app.update_config(True)
@@ -437,6 +438,7 @@ async def download_task(
         app.set_download_id(node, message.id, download_status)
 
     node.download_status[message.id] = download_status
+    app.mark_download_finished(node, message.id, download_status)
     app.update_config(True)
 
     file_size = os.path.getsize(file_name) if file_name else 0

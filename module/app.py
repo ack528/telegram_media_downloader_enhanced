@@ -1044,3 +1044,33 @@ class Application:
         self.chat_download_config[node.chat_id].last_read_message_id = max(
             self.chat_download_config[node.chat_id].last_read_message_id, message_id
         )
+
+    def mark_download_pending(self, node: TaskNode, message_id: int):
+        """Persist a queued/in-progress download id for crash recovery."""
+        if node.chat_id not in self.chat_download_config:
+            return
+
+        download_config = self.chat_download_config[node.chat_id]
+        if message_id not in download_config.ids_to_retry_dict:
+            download_config.ids_to_retry.append(message_id)
+        download_config.ids_to_retry_dict[message_id] = True
+
+    def mark_download_finished(
+        self, node: TaskNode, message_id: int, download_status: DownloadStatus
+    ):
+        """Remove completed download ids from crash recovery state."""
+        if node.chat_id not in self.chat_download_config:
+            return
+
+        if download_status not in (
+            DownloadStatus.SuccessDownload,
+            DownloadStatus.SkipDownload,
+        ):
+            return
+
+        download_config = self.chat_download_config[node.chat_id]
+        if message_id in download_config.ids_to_retry_dict:
+            download_config.ids_to_retry_dict.pop(message_id, None)
+            download_config.ids_to_retry = [
+                it for it in download_config.ids_to_retry if it != message_id
+            ]

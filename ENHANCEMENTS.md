@@ -21,6 +21,8 @@ as a packaged executable.
 - Resume interrupted downloads from retained `.temp` files on the next run.
 - Persist queued and finished task state immediately, allowing unexpected exits
   to recover unfinished message ids from `data.yaml`.
+- Explicitly marks each queued message id as pending and removes it only after
+  success or skip, making crash recovery independent from shutdown hooks.
 - Retry interrupted downloads up to five times with incremental backoff and
   refreshed Telegram message references.
 
@@ -44,6 +46,11 @@ Queued and in-progress message ids are written to `data.yaml`, so unfinished
 tasks are retried automatically after restart. Completed final files are checked
 by size before being skipped; partial final files are moved back into the temp
 resume path.
+
+Each queued message id is added to the recovery list before the download starts.
+The id is removed only after a successful download or an intentional skip. This
+means closing the console window or killing the process while a task is running
+will leave the id in `data.yaml` for the next startup.
 
 ## Build
 
