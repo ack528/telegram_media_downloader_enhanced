@@ -12,7 +12,7 @@ param(
     [string]$Remote = "enhanced",
     [string]$Branch = "master",
     [string]$SpecPath = "media_downloader.spec",
-    [string]$AssetPath = "dist\tdl-windows-fixed.zip",
+    [string]$AssetPath = "dist\tdl.exe",
     [switch]$SkipTests,
     [switch]$NoBuild,
     [switch]$Prerelease,
@@ -49,12 +49,12 @@ function Get-GitHubToken {
     return $token
 }
 
-function New-ZipFromBuild {
+function Copy-BuildAsset {
     param([string]$OutputPath)
 
-    $bundlePath = "dist\tdl"
-    if (-not (Test-Path $bundlePath)) {
-        throw "Build output not found: $bundlePath"
+    $exePath = "dist\tdl.exe"
+    if (-not (Test-Path $exePath)) {
+        throw "Build output not found: $exePath"
     }
 
     $outputDir = Split-Path $OutputPath -Parent
@@ -62,11 +62,17 @@ function New-ZipFromBuild {
         New-Item -ItemType Directory -Path $outputDir | Out-Null
     }
 
-    if (Test-Path $OutputPath) {
+    $sourcePath = (Resolve-Path $exePath).Path
+    $targetPath = [IO.Path]::GetFullPath($OutputPath)
+
+    if ((Test-Path $OutputPath) -and ($targetPath -ne $sourcePath)) {
         Remove-Item -LiteralPath $OutputPath -Force
     }
 
-    Compress-Archive -Path "$bundlePath\*" -DestinationPath $OutputPath -Force
+    if ($targetPath -ne $sourcePath) {
+        Copy-Item -LiteralPath $exePath -Destination $OutputPath -Force
+    }
+
     Write-Host "Created asset: $OutputPath"
 }
 
@@ -177,12 +183,17 @@ function Publish-GitHubRelease {
 
     $escapedAssetName = [uri]::EscapeDataString($assetName)
     $uploadUrl = $release.upload_url -replace "\{\?name,label\}", "?name=$escapedAssetName"
+    $contentType = "application/octet-stream"
+    if ([IO.Path]::GetExtension($Asset).ToLowerInvariant() -eq ".zip") {
+        $contentType = "application/zip"
+    }
+
     Invoke-RestMethod `
         -Method Post `
         -Uri $uploadUrl `
         -Headers $headers `
         -InFile (Resolve-Path $Asset).Path `
-        -ContentType "application/zip" | Out-Null
+        -ContentType $contentType | Out-Null
 
     Write-Host "Release published: $($release.html_url)"
 }
@@ -226,7 +237,7 @@ if (-not $NoBuild) {
         "--clean",
         "--noconfirm"
     )
-    New-ZipFromBuild -OutputPath $AssetPath
+    Copy-BuildAsset -OutputPath $AssetPath
 }
 
 Invoke-GitCommitIfNeeded -Message $CommitMessage -Body $CommitBody

@@ -61,15 +61,21 @@ executables.
   arrives before `download_stall_timeout`.
 - Monitors long-running download speed and can switch Clash to the fastest
   non-timeout US node when speed remains below the configured threshold.
+- Packages Windows releases as a single `tdl.exe`; keep `config.yaml`,
+  `data.yaml`, `sessions`, `temp`, and `log` beside it and replace only the exe
+  when updating.
 
 ### Windows executable usage
 
-1. Extract the packaged `tdl` folder.
+1. Put `tdl.exe` in your downloader folder.
 2. Edit `config.yaml` in the same directory as `tdl.exe`.
 3. Run `tdl.exe`.
 
 Downloaded files, temporary files, logs, and sessions are created relative to the
 executable directory unless `save_path` is set to an absolute path.
+
+When updating, keep `config.yaml`, `data.yaml`, `sessions`, `temp`, and `log` in
+place. Replace only `tdl.exe`.
 
 ### Resume and recovery
 
@@ -96,7 +102,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m PyInstaller media_downloader.spec --clean --noconfirm
 ```
 
-The executable bundle is written to `dist\tdl`.
+The single-file executable is written to `dist\tdl.exe`.
 
 ## Overview
 > Support two default running

@@ -29,15 +29,21 @@ as a packaged executable.
   arrives before `download_stall_timeout`.
 - Monitor active download speed and switch Clash to the fastest non-timeout US
   node when speed stays below the configured threshold.
+- Package Windows releases as a single `tdl.exe`, so updates only require
+  replacing that executable while keeping `config.yaml`, `data.yaml`, `sessions`,
+  `temp`, and `log`.
 
 ## Usage
 
-1. Extract the packaged `tdl` folder.
+1. Put `tdl.exe` in your downloader folder.
 2. Edit `config.yaml` in the same directory as `tdl.exe`.
 3. Run `tdl.exe`.
 
 Downloaded files, temporary files, logs, and sessions are created relative to the
 executable directory unless `save_path` is set to an absolute path.
+
+When updating, keep `config.yaml`, `data.yaml`, `sessions`, `temp`, and `log` in
+place. Replace only `tdl.exe`.
 
 ## Resume and Recovery
 
@@ -64,19 +70,19 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m PyInstaller media_downloader.spec --clean --noconfirm
 ```
 
-The executable bundle is written to `dist\tdl`.
+The single-file executable is written to `dist\tdl.exe`.
 
 ## Automated Release Script
 
 Use `scripts\release.ps1` to test, build, package, commit, push, tag, create a
-GitHub Release, and upload the zip asset in one command.
+GitHub Release, and upload the release asset in one command.
 
 ```powershell
 .\scripts\release.ps1 `
   -CommitMessage "fix: describe your change" `
   -CommitBody "Optional longer commit body." `
-  -Tag "v2.2.6-enhanced.4" `
-  -ReleaseName "v2.2.6 Enhanced Windows Build 4" `
+  -Tag "v3.0.0dev" `
+  -ReleaseName "3.0.0dev 开发版" `
   -ReleaseBody "Optional release notes."
 ```
 
@@ -85,7 +91,7 @@ Defaults:
 - Remote: `enhanced`
 - Branch: `master`
 - Repository: `ack528/telegram_media_downloader_enhanced`
-- Asset: `dist\tdl-windows-fixed.zip`
+- Asset: `dist\tdl.exe`
 - Build command: `.\.venv\Scripts\python.exe -m PyInstaller media_downloader.spec --clean --noconfirm`
 
 Useful switches:

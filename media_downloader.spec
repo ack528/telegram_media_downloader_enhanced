@@ -8,8 +8,6 @@ a = Analysis(
     datas=[
         ('./module/templates', './module/templates'),
         ('./module/static/', './module/static'),
-        ('./config.yaml', './'),
-        ('./data.yaml', './'),
     ],
     hiddenimports=[],
     hookspath=[],
@@ -24,8 +22,9 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz,
     a.scripts,
+    a.binaries,
+    a.datas,
     [],
-    exclude_binaries=True,
     name='tdl',
     debug=False,
     bootloader_ignore_signals=False,
@@ -38,13 +37,4 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     contents_directory='.',
-)
-coll = COLLECT(
-    exe,
-    a.binaries,
-    a.datas,
-    strip=False,
-    upx=True,
-    upx_exclude=[],
-    name='tdl',
 )
