@@ -1157,9 +1157,11 @@ async def _report_bot_status(
         if upload_result_str:
             upload_result_str = f"\n📤 {_t('Upload Progresses')}:\n" + upload_result_str
 
+        status_update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         new_msg_str = (
             f"`\n"
             f"🆔 task id: {node.task_id}\n"
+            f"Updated at: {status_update_time}\n"
             f"📥 {_t('Downloading')}: {format_byte(node.total_download_byte)}\n"
             f"├─ 📁 {_t('Total')}: {node.total_download_task}\n"
             f"├─ ✅ {_t('Success')}: {node.success_download_task}\n"

@@ -53,6 +53,8 @@ executables.
   success or skip, making crash recovery independent from shutdown hooks.
 - Retries interrupted downloads up to five times with incremental backoff and
   refreshed Telegram message references.
+- Shows an `Updated at` timestamp in the live bot progress message so stale
+  notification updates are easy to spot during long-running downloads.
 
 ### Windows executable usage
 
