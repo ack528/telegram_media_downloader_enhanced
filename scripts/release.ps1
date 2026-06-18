@@ -201,6 +201,7 @@ if (-not $SkipTests) {
     Invoke-Checked ".\.venv\Scripts\python.exe" @(
         "-m",
         "unittest",
+        "tests.module.test_bot_status",
         "tests.module.test_app_recovery",
         "tests.utils.test_format"
     )
@@ -208,7 +209,8 @@ if (-not $SkipTests) {
         "-m",
         "py_compile",
         "media_downloader.py",
-        "module\app.py"
+        "module\app.py",
+        "module\pyrogram_extension.py"
     )
 }
 

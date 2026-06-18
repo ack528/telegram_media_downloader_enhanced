@@ -55,6 +55,8 @@ executables.
   refreshed Telegram message references.
 - Shows an `Updated at` timestamp in the live bot progress message so stale
   notification updates are easy to spot during long-running downloads.
+- Prevents slow or stuck Telegram bot message edits from blocking future live
+  progress updates; failed edits are retried by the next status loop.
 
 ### Windows executable usage
 

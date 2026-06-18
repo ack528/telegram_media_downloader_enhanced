@@ -51,6 +51,8 @@ from utils.meta_data import MetaData
 _mimetypes = MimeTypes()
 _mimetypes.readfp(StringIO(mime_types))
 _download_cache = Cache(1024 * 1024 * 1024)
+BOT_STATUS_EDIT_TIMEOUT = 30
+BOT_STATUS_FLOOD_WAIT_PADDING = 1
 
 
 def reset_download_cache():
@@ -1059,6 +1061,45 @@ async def report_bot_status(
         logger.debug(f"{e}")
 
 
+async def _edit_bot_status_message(
+    client: pyrogram.Client,
+    node: TaskNode,
+    message_text: str,
+) -> bool:
+    """Edit bot status without blocking the status loop forever."""
+    try:
+        await asyncio.wait_for(
+            client.edit_message_text(
+                node.from_user_id,
+                node.reply_message_id,
+                message_text,
+                parse_mode=pyrogram.enums.ParseMode.MARKDOWN,
+            ),
+            timeout=BOT_STATUS_EDIT_TIMEOUT,
+        )
+        return True
+    except pyrogram.errors.exceptions.bad_request_400.MessageNotModified:
+        return True
+    except pyrogram.errors.exceptions.flood_420.FloodWait as wait_err:
+        wait_seconds = max(int(getattr(wait_err, "value", 0)), 0)
+        node.last_reply_time = (
+            time.time() + wait_seconds + BOT_STATUS_FLOOD_WAIT_PADDING
+        )
+        logger.warning(
+            "Bot status update hit FloodWait for {} seconds; will retry later",
+            wait_seconds,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Bot status update timed out after {} seconds; next status loop will retry",
+            BOT_STATUS_EDIT_TIMEOUT,
+        )
+    except Exception as exc:
+        logger.warning("Bot status update failed: {}", exc)
+
+    return False
+
+
 async def _report_bot_status(
     client: pyrogram.Client,
     node: TaskNode,
@@ -1174,13 +1215,8 @@ async def _report_bot_status(
         )
 
         if new_msg_str != node.last_edit_msg:
-            node.last_edit_msg = new_msg_str
-            await client.edit_message_text(
-                node.from_user_id,
-                node.reply_message_id,
-                new_msg_str,
-                parse_mode=pyrogram.enums.ParseMode.MARKDOWN,
-            )
+            if await _edit_bot_status_message(client, node, new_msg_str):
+                node.last_edit_msg = new_msg_str
 
 
 def set_max_concurrent_transmissions(
