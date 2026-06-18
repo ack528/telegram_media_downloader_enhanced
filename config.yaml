@@ -20,5 +20,16 @@ media_types:
 - document
 - voice
 - video_note
+download_stall_timeout: 90
+clash:
+  enabled: true
+  controller: http://127.0.0.1:9097
+  secret: "999"
+  selector: ''
+  low_speed_kb: 100
+  low_speed_seconds: 60
+  switch_cooldown_seconds: 300
+  timeout_ms: 5000
+  test_url: https://www.gstatic.com/generate_204
 # in linux please use /
 # save_path: E:\github\telegram_media_downloader

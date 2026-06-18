@@ -25,6 +25,10 @@ as a packaged executable.
   success or skip, making crash recovery independent from shutdown hooks.
 - Retry interrupted downloads up to five times with incremental backoff and
   refreshed Telegram message references.
+- Restart stalled Telegram file streams with resumable retry when no new chunk
+  arrives before `download_stall_timeout`.
+- Monitor active download speed and switch Clash to the fastest non-timeout US
+  node when speed stays below the configured threshold.
 
 ## Usage
 

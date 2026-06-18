@@ -14,9 +14,15 @@ from rich.logging import RichHandler
 
 from module.app import Application, ChatDownloadConfig, DownloadStatus, TaskNode
 from module.bot import start_download_bot, stop_download_bot
-from module.download_stat import update_download_status
+from module.clash_controller import ClashController
+from module.download_stat import (
+    get_active_download_count,
+    get_total_download_speed,
+    update_download_status,
+)
 from module.get_chat_history_v2 import get_chat_history_v2
 from module.language import _t
+from module.network_watchdog import bump_network_epoch, get_network_epoch
 from module.pyrogram_extension import (
     HookClient,
     fetch_message,
@@ -52,6 +58,7 @@ queue: asyncio.Queue = asyncio.Queue()
 RETRY_TIME_OUT = 3
 DOWNLOAD_RETRY_COUNT = 5
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
+LOW_SPEED_MONITOR_INTERVAL = 5
 
 logging.getLogger("pyrogram.session.session").addFilter(LogFilter())
 logging.getLogger("pyrogram.client").addFilter(LogFilter())
@@ -399,17 +406,38 @@ async def _download_media_with_resume(
     file_id_obj = FileId.decode(media_obj.file_id)
     offset = resume_size // DOWNLOAD_CHUNK_SIZE
 
-    with open(temp_download_path, "ab") as temp_file:
-        async for chunk in client.get_file(
-            file_id_obj,
-            media_size,
-            0,
-            offset,
-            progress,
-            progress_args,
-        ):
-            if chunk:
-                temp_file.write(chunk)
+    network_epoch = get_network_epoch()
+    file_stream = client.get_file(
+        file_id_obj,
+        media_size,
+        0,
+        offset,
+        progress,
+        progress_args,
+    )
+
+    try:
+        with open(temp_download_path, "ab") as temp_file:
+            while True:
+                if get_network_epoch() != network_epoch:
+                    raise IOError("network route changed, restarting resumable download")
+
+                try:
+                    chunk = await asyncio.wait_for(
+                        file_stream.__anext__(),
+                        timeout=app.download_stall_timeout,
+                    )
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError as exc:
+                    raise TimeoutError(
+                        f"download stalled for {app.download_stall_timeout} seconds"
+                    ) from exc
+
+                if chunk:
+                    temp_file.write(chunk)
+    finally:
+        await file_stream.aclose()
 
     if media_size:
         downloaded_size = os.path.getsize(temp_download_path)
@@ -750,6 +778,75 @@ async def run_until_all_task_finish():
         await asyncio.sleep(1)
 
 
+async def _switch_clash_node():
+    """Switch Clash to a tested US node in a worker thread."""
+    controller = ClashController(app.clash_config)
+    return await asyncio.to_thread(controller.switch_to_fast_us_node)
+
+
+async def monitor_low_download_speed():
+    """Switch Clash node when active downloads stay too slow."""
+    config = app.clash_config
+    if not config.get("enabled", True):
+        return
+
+    low_speed_bytes = int(config.get("low_speed_kb", 100)) * 1024
+    low_speed_seconds = int(config.get("low_speed_seconds", 60))
+    cooldown_seconds = int(config.get("switch_cooldown_seconds", 300))
+    low_speed_since = None
+    last_switch_time = 0
+
+    while app.is_running:
+        await asyncio.sleep(LOW_SPEED_MONITOR_INTERVAL)
+
+        if get_active_download_count() <= 0:
+            low_speed_since = None
+            continue
+
+        now = time.time()
+        speed = get_total_download_speed()
+        if speed >= low_speed_bytes:
+            low_speed_since = None
+            continue
+
+        if low_speed_since is None:
+            low_speed_since = now
+            continue
+
+        if now - low_speed_since < low_speed_seconds:
+            continue
+        if now - last_switch_time < cooldown_seconds:
+            continue
+
+        logger.warning(
+            "Download speed stayed below {} KB/s for {} seconds; testing Clash nodes",
+            int(low_speed_bytes / 1024),
+            low_speed_seconds,
+        )
+
+        try:
+            result = await _switch_clash_node()
+        except Exception as exc:
+            logger.warning("Clash auto switch failed: {}", exc)
+            low_speed_since = None
+            last_switch_time = now
+            continue
+
+        if result:
+            bump_network_epoch()
+            logger.warning(
+                "Switched Clash selector {} to {} ({} ms); active downloads will retry",
+                result.selector,
+                result.node,
+                result.delay,
+            )
+        else:
+            logger.warning("Clash auto switch found no usable US node")
+
+        low_speed_since = None
+        last_switch_time = now
+
+
 def _exec_loop():
     """Exec loop"""
 
@@ -792,6 +889,7 @@ def main():
         logger.success(_t("Successfully started (Press Ctrl+C to stop)"))
 
         app.loop.create_task(download_all_chat(client))
+        tasks.append(app.loop.create_task(monitor_low_download_speed()))
         for _ in range(app.max_download_task):
             task = app.loop.create_task(worker(client))
             tasks.append(task)

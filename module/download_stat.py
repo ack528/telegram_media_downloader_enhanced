@@ -32,6 +32,16 @@ def get_total_download_speed() -> int:
     return _total_download_speed
 
 
+def get_active_download_count() -> int:
+    """Return active download item count."""
+    active_count = 0
+    for messages in _download_result.values():
+        for value in messages.values():
+            if value["down_byte"] < value["total_size"]:
+                active_count += 1
+    return active_count
+
+
 def get_download_state() -> DownloadState:
     """get download state"""
     return _download_state

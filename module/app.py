@@ -404,6 +404,17 @@ class Application:
         self.caption_name_dict: dict = {}
         self.caption_entities_dict: dict = {}
         self.max_concurrent_transmissions: int = 1
+        self.download_stall_timeout: int = 90
+        self.clash_config: dict = {
+            "enabled": True,
+            "controller": "http://127.0.0.1:9097",
+            "secret": "999",
+            "low_speed_kb": 100,
+            "low_speed_seconds": 60,
+            "switch_cooldown_seconds": 300,
+            "timeout_ms": 5000,
+            "test_url": "https://www.gstatic.com/generate_204",
+        }
         self.web_host: str = "0.0.0.0"
         self.web_port: int = 5000
         self.max_download_task: int = 5
@@ -520,6 +531,12 @@ class Application:
         self.max_concurrent_transmissions = _config.get(
             "max_concurrent_transmissions", self.max_concurrent_transmissions
         )
+        self.download_stall_timeout = get_config(
+            _config, "download_stall_timeout", self.download_stall_timeout, int
+        )
+        clash_config = _config.get("clash", {})
+        if isinstance(clash_config, dict):
+            self.clash_config.update(clash_config)
 
         language = _config.get("language", "EN")
 

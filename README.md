@@ -57,6 +57,10 @@ executables.
   notification updates are easy to spot during long-running downloads.
 - Prevents slow or stuck Telegram bot message edits from blocking future live
   progress updates; failed edits are retried by the next status loop.
+- Restarts stalled Telegram file streams with resumable retry when no new chunk
+  arrives before `download_stall_timeout`.
+- Monitors long-running download speed and can switch Clash to the fastest
+  non-timeout US node when speed remains below the configured threshold.
 
 ### Windows executable usage
 
@@ -338,6 +342,34 @@ proxy:
 ```
 
 If your proxy doesn’t require authorization you can omit username and password. Then the proxy will automatically be enabled.
+
+## Clash auto switch
+
+This enhanced fork can use Clash's external controller to recover from long
+periods of very low download speed. By default it uses `http://127.0.0.1:9097`
+with secret `999`, watches for active downloads staying below `100 KB/s` for
+`60` seconds, tests US nodes, and switches the selector to the lowest-latency
+node that does not timeout.
+
+You can override the defaults in `config.yaml`:
+
+```yaml
+download_stall_timeout: 90
+
+clash:
+  enabled: true
+  controller: http://127.0.0.1:9097
+  secret: "999"
+  selector: Proxy
+  low_speed_kb: 100
+  low_speed_seconds: 60
+  switch_cooldown_seconds: 300
+  timeout_ms: 5000
+  test_url: https://www.gstatic.com/generate_204
+```
+
+Leave `selector` empty to let the downloader choose a Clash proxy group that
+contains US nodes. Set `clash.enabled: false` to disable this monitor.
 
 ## Contributing
 
