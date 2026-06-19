@@ -24,11 +24,10 @@ param(
 $ErrorActionPreference = "Stop"
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-function ConvertTo-Utf8JsonBytes {
+function ConvertTo-Utf8Json {
     param([hashtable]$Value)
 
-    $json = $Value | ConvertTo-Json -Depth 20
-    return [System.Text.Encoding]::UTF8.GetBytes($json)
+    return $Value | ConvertTo-Json -Depth 20
 }
 
 function Invoke-Checked {
@@ -164,7 +163,7 @@ function Publish-GitHubRelease {
             throw
         }
 
-        $createBody = ConvertTo-Utf8JsonBytes -Value @{
+        $createBody = ConvertTo-Utf8Json -Value @{
             tag_name = $TagName
             target_commitish = $Branch
             name = $Name
@@ -181,7 +180,7 @@ function Publish-GitHubRelease {
             -ContentType "application/json; charset=utf-8"
     } finally {
         if ($release) {
-            $patchBody = ConvertTo-Utf8JsonBytes -Value @{
+            $patchBody = ConvertTo-Utf8Json -Value @{
                 name = $Name
                 body = $Body
                 draft = $IsDraft
