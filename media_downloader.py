@@ -992,6 +992,13 @@ async def download_all_chat(client: pyrogram.Client):
             value.need_check = True
             continue
 
+        logger.bind(console=True).info(
+            "收到{}下载任务：chat_id={}，待恢复 ID {} 个。",
+            "机器人恢复" if value.is_bot_task else "config",
+            key,
+            len(value.ids_to_retry),
+        )
+
         if app.bot_token:
             reply_message = (
                 f"恢复机器人下载任务: {key}"

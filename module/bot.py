@@ -942,6 +942,11 @@ async def direct_download(
 
     chat_download_config = ChatDownloadConfig()
     chat_download_config.last_read_message_id = download_message.id
+    logger.bind(console=True).info(
+        "收到单条媒体下载任务：chat_id={}，消息 ID {}。",
+        chat_id,
+        download_message.id,
+    )
     download_bot.remember_download_task(chat_download_config, node, recover_only=True)
 
     _bot.add_task_node(node)
