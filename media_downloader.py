@@ -35,7 +35,7 @@ from module.pyrogram_extension import (
     upload_telegram_chat,
 )
 from module.web import init_web
-from utils.format import truncate_filename, validate_title
+from utils.format import format_byte, truncate_filename, validate_title
 from utils.log import LogFilter, disable_quick_edit_mode
 from utils.meta import print_meta
 from utils.meta_data import MetaData
@@ -59,6 +59,7 @@ RETRY_TIME_OUT = 3
 DOWNLOAD_RETRY_COUNT = 5
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 LOW_SPEED_MONITOR_INTERVAL = 5
+DOWNLOAD_HEARTBEAT_INTERVAL = 60
 
 logging.getLogger("pyrogram.session.session").addFilter(LogFilter())
 logging.getLogger("pyrogram.client").addFilter(LogFilter())
@@ -639,7 +640,17 @@ async def download_media(
             break
 
         await asyncio.sleep(RETRY_TIME_OUT * (retry + 1))
-        message = await fetch_message(client, message)
+        try:
+            message = await fetch_message(client, message)
+        except Exception as e:
+            logger.warning(
+                "Message[{}]: refetch failed before retry {}/{}: {}",
+                message.id,
+                retry + 2,
+                DOWNLOAD_RETRY_COUNT,
+                e,
+            )
+            continue
         _media = getattr(message, _type, None)
         if _media is None:
             break
@@ -674,6 +685,7 @@ def _check_config() -> bool:
 async def worker(client: pyrogram.client.Client):
     """Work for download task"""
     while app.is_running:
+        item = None
         try:
             item = await queue.get()
             message = item[0]
@@ -688,6 +700,25 @@ async def worker(client: pyrogram.client.Client):
                 await download_task(client, message, node)
         except Exception as e:
             logger.exception(f"{e}")
+            if item:
+                try:
+                    message = item[0]
+                    node = item[1]
+                    node.download_status[message.id] = DownloadStatus.FailedDownload
+                    if node.bot:
+                        await report_bot_download_status(
+                            node.bot, node, DownloadStatus.FailedDownload
+                        )
+                    else:
+                        app.set_download_id(
+                            node, message.id, DownloadStatus.FailedDownload
+                        )
+                    app.update_config(True)
+                except Exception as update_error:
+                    logger.warning("Failed to persist worker failure: {}", update_error)
+        finally:
+            if item:
+                queue.task_done()
 
 
 async def download_chat_task(
@@ -847,6 +878,23 @@ async def monitor_low_download_speed():
         last_switch_time = now
 
 
+async def log_download_heartbeat():
+    """Write periodic heartbeat so long downloads never look silent."""
+    while app.is_running:
+        await asyncio.sleep(DOWNLOAD_HEARTBEAT_INTERVAL)
+        active_count = get_active_download_count()
+        queue_size = queue.qsize()
+        if active_count <= 0 and queue_size <= 0:
+            continue
+
+        logger.info(
+            "Download heartbeat: active={}, queue={}, speed={}/s",
+            active_count,
+            queue_size,
+            format_byte(get_total_download_speed()),
+        )
+
+
 def _exec_loop():
     """Exec loop"""
 
@@ -890,6 +938,7 @@ def main():
 
         app.loop.create_task(download_all_chat(client))
         tasks.append(app.loop.create_task(monitor_low_download_speed()))
+        tasks.append(app.loop.create_task(log_download_heartbeat()))
         for _ in range(app.max_download_task):
             task = app.loop.create_task(worker(client))
             tasks.append(task)

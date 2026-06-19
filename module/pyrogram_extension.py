@@ -53,6 +53,9 @@ _mimetypes.readfp(StringIO(mime_types))
 _download_cache = Cache(1024 * 1024 * 1024)
 BOT_STATUS_EDIT_TIMEOUT = 30
 BOT_STATUS_FLOOD_WAIT_PADDING = 1
+FETCH_MESSAGE_TIMEOUT = 30
+FETCH_MESSAGE_RETRY_COUNT = 5
+FETCH_MESSAGE_RETRY_DELAY = 3
 
 
 def reset_download_cache():
@@ -998,7 +1001,13 @@ def record_download_status(func):
 
         _download_cache[(node.chat_id, message.id)] = DownloadStatus.Downloading
 
-        status, file_name = await func(client, message, media_types, file_formats, node)
+        try:
+            status, file_name = await func(
+                client, message, media_types, file_formats, node
+            )
+        except Exception:
+            _download_cache[(node.chat_id, message.id)] = DownloadStatus.FailedDownload
+            raise
 
         _download_cache[(node.chat_id, message.id)] = status
 
@@ -1242,10 +1251,38 @@ async def fetch_message(client: pyrogram.Client, message: pyrogram.types.Message
      Returns:
         pyrogram.types.Message: A message object retrieved from the specified chat.
     """
-    return await client.get_messages(
-        chat_id=message.chat.id,
-        message_ids=message.id,
-    )
+    last_error = None
+    for attempt in range(1, FETCH_MESSAGE_RETRY_COUNT + 1):
+        try:
+            return await asyncio.wait_for(
+                client.get_messages(
+                    chat_id=message.chat.id,
+                    message_ids=message.id,
+                ),
+                timeout=FETCH_MESSAGE_TIMEOUT,
+            )
+        except pyrogram.errors.exceptions.flood_420.FloodWait as wait_err:
+            logger.warning(
+                "Message[{}]: fetch hit FloodWait for {} seconds",
+                message.id,
+                wait_err.value,
+            )
+            await asyncio.sleep(wait_err.value)
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "Message[{}]: fetch failed on attempt {}/{}: {}",
+                message.id,
+                attempt,
+                FETCH_MESSAGE_RETRY_COUNT,
+                exc,
+            )
+            if attempt < FETCH_MESSAGE_RETRY_COUNT:
+                await asyncio.sleep(FETCH_MESSAGE_RETRY_DELAY * attempt)
+
+    if last_error:
+        raise last_error
+    raise RuntimeError(f"Message[{message.id}]: fetch failed without error detail")
 
 
 async def retry(func: Callable, args: tuple = (), max_attempts=3, wait_second=15):

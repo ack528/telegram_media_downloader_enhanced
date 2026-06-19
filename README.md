@@ -64,6 +64,9 @@ executables.
 - Packages Windows releases as a single `tdl.exe`; keep `config.yaml`,
   `data.yaml`, `sessions`, `temp`, and `log` beside it and replace only the exe
   when updating.
+- Retries Telegram message refetches after transient `Connection lost` errors,
+  prevents failed downloads from staying cached as `Downloading`, and writes a
+  periodic download heartbeat while long tasks are active.
 
 ### Windows executable usage
 

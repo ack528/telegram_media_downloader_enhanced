@@ -32,6 +32,9 @@ as a packaged executable.
 - Package Windows releases as a single `tdl.exe`, so updates only require
   replacing that executable while keeping `config.yaml`, `data.yaml`, `sessions`,
   `temp`, and `log`.
+- Retry Telegram message refetches after transient `Connection lost` errors,
+  prevent failed downloads from staying cached as `Downloading`, and write a
+  periodic download heartbeat while long tasks are active.
 
 ## Usage
 

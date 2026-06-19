@@ -214,6 +214,7 @@ if (-not $SkipTests) {
         "unittest",
         "tests.module.test_bot_status",
         "tests.module.test_clash_controller",
+        "tests.module.test_resilience",
         "tests.module.test_app_recovery",
         "tests.utils.test_format"
     )
@@ -222,6 +223,7 @@ if (-not $SkipTests) {
         "py_compile",
         "media_downloader.py",
         "module\app.py",
+        "module\bot.py",
         "module\download_stat.py",
         "module\pyrogram_extension.py",
         "module\clash_controller.py",

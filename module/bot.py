@@ -100,13 +100,16 @@ class DownloadBot:
     async def update_reply_message(self):
         """Update reply message"""
         while self.is_running:
-            for key, value in self.task_node.copy().items():
-                if value.is_running:
-                    await report_bot_status(self.bot, value)
+            try:
+                for key, value in self.task_node.copy().items():
+                    if value.is_running:
+                        await report_bot_status(self.bot, value)
 
-            for key, value in self.task_node.copy().items():
-                if value.is_running and value.is_finish():
-                    self.remove_task_node(key)
+                for key, value in self.task_node.copy().items():
+                    if value.is_running and value.is_finish():
+                        self.remove_task_node(key)
+            except Exception as exc:
+                logger.warning("Bot status loop failed: {}", exc)
             await asyncio.sleep(3)
 
     def assign_config(self, _config: dict):
