@@ -8,6 +8,7 @@ param(
     [string]$CommitBody = "",
     [string]$ReleaseName = "",
     [string]$ReleaseBody = "",
+    [string]$ReleaseBodyPath = "",
     [string]$Repo = "ack528/telegram_media_downloader_enhanced",
     [string]$Remote = "enhanced",
     [string]$Branch = "master",
@@ -16,10 +17,19 @@ param(
     [switch]$SkipTests,
     [switch]$NoBuild,
     [switch]$Prerelease,
-    [switch]$Draft
+    [switch]$Draft,
+    [switch]$UpdateExistingRelease
 )
 
 $ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+function ConvertTo-Utf8JsonBytes {
+    param([hashtable]$Value)
+
+    $json = $Value | ConvertTo-Json -Depth 20
+    return [System.Text.Encoding]::UTF8.GetBytes($json)
+}
 
 function Invoke-Checked {
     param(
@@ -154,21 +164,37 @@ function Publish-GitHubRelease {
             throw
         }
 
-        $createBody = @{
+        $createBody = ConvertTo-Utf8JsonBytes @{
             tag_name = $TagName
             target_commitish = $Branch
             name = $Name
             body = $Body
             draft = $IsDraft
             prerelease = $IsPrerelease
-        } | ConvertTo-Json
+        }
 
         $release = Invoke-RestMethod `
             -Method Post `
             -Uri "https://api.github.com/repos/$Repository/releases" `
             -Headers $headers `
             -Body $createBody `
-            -ContentType "application/json"
+            -ContentType "application/json; charset=utf-8"
+    } finally {
+        if ($release) {
+            $patchBody = ConvertTo-Utf8JsonBytes @{
+                name = $Name
+                body = $Body
+                draft = $IsDraft
+                prerelease = $IsPrerelease
+            }
+
+            $release = Invoke-RestMethod `
+                -Method Patch `
+                -Uri "https://api.github.com/repos/$Repository/releases/$($release.id)" `
+                -Headers $headers `
+                -Body $patchBody `
+                -ContentType "application/json; charset=utf-8"
+        }
     }
 
     $assetName = Split-Path $Asset -Leaf
@@ -206,7 +232,13 @@ if (-not $ReleaseName) {
     $ReleaseName = $Tag
 }
 
-Assert-TagAvailable -RemoteName $Remote -TagName $Tag
+if ($ReleaseBodyPath) {
+    $ReleaseBody = Get-Content -LiteralPath $ReleaseBodyPath -Raw -Encoding UTF8
+}
+
+if (-not $UpdateExistingRelease) {
+    Assert-TagAvailable -RemoteName $Remote -TagName $Tag
+}
 
 if (-not $SkipTests) {
     Invoke-Checked ".\.venv\Scripts\python.exe" @(
@@ -245,8 +277,11 @@ if (-not $NoBuild) {
 Invoke-GitCommitIfNeeded -Message $CommitMessage -Body $CommitBody
 
 Invoke-Checked git @("push", $Remote, $Branch)
-Invoke-Checked git @("tag", "-a", $Tag, "-m", "Release $Tag")
-Invoke-Checked git @("push", $Remote, $Tag)
+
+if (-not $UpdateExistingRelease) {
+    Invoke-Checked git @("tag", "-a", $Tag, "-m", "Release $Tag")
+    Invoke-Checked git @("push", $Remote, $Tag)
+}
 
 Publish-GitHubRelease `
     -Repository $Repo `

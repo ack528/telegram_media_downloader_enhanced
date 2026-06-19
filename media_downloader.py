@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import shutil
+import sys
 import time
 from typing import List, Optional, Tuple, Union
 
@@ -40,8 +41,16 @@ from utils.log import LogFilter, disable_quick_edit_mode
 from utils.meta import print_meta
 from utils.meta_data import MetaData
 
+logger.remove()
+logger.add(
+    sys.stderr,
+    level="SUCCESS",
+    format="<green>{time:HH:mm:ss}</green> | <level>{message}</level>",
+    filter=lambda record: record["extra"].get("console")
+    or record["level"].no >= logger.level("WARNING").no,
+)
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.WARNING,
     format="%(message)s",
     datefmt="[%X]",
     handlers=[RichHandler()],
@@ -83,7 +92,9 @@ def _check_download_finish(media_size: int, download_path: str, ui_file_name: st
     """
     download_size = os.path.getsize(download_path)
     if media_size == download_size:
-        logger.success(f"{_t('Successfully downloaded')} - {ui_file_name}")
+        logger.bind(console=True).success(
+            f"{_t('Successfully downloaded')} - {ui_file_name}"
+        )
     else:
         logger.warning(
             f"{_t('Media downloaded with wrong size')}: "
@@ -142,7 +153,7 @@ def _recover_existing_download(
     if _is_exist(file_name):
         file_size = os.path.getsize(file_name)
         if media_size == 0 or file_size == media_size:
-            logger.info(
+            logger.debug(
                 f"id file {ui_file_name} {_t('already download,download skipped')}.\n"
             )
             return DownloadStatus.SkipDownload
@@ -349,7 +360,7 @@ async def add_download_task(
     app.mark_download_pending(node, message.id)
     await queue.put((message, node))
     node.total_task += 1
-    logger.info(
+    logger.debug(
         "Queued download task: task_id={}, chat_id={}, message_id={}, queue_size={}",
         node.task_id,
         node.chat_id,
@@ -463,7 +474,7 @@ async def download_task(
 ):
     """Download and Forward media"""
     task_started_at = time.time()
-    logger.info(
+    logger.debug(
         "Download task started: task_id={}, chat_id={}, message_id={}",
         node.task_id,
         node.chat_id,
@@ -514,7 +525,7 @@ async def download_task(
         download_status,
         file_size,
     )
-    logger.info(
+    logger.debug(
         "Download task finished: task_id={}, chat_id={}, message_id={}, status={}, "
         "file_size={}, elapsed={:.1f}s",
         node.task_id,
@@ -740,7 +751,7 @@ async def worker(client: pyrogram.client.Client):
             if node.is_stop_transmission:
                 continue
 
-            logger.info(
+            logger.debug(
                 "Worker picked task: task_id={}, chat_id={}, message_id={}, "
                 "queue_size={}",
                 node.task_id,
