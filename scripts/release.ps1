@@ -164,7 +164,7 @@ function Publish-GitHubRelease {
             throw
         }
 
-        $createBody = ConvertTo-Utf8JsonBytes @{
+        $createBody = ConvertTo-Utf8JsonBytes -Value @{
             tag_name = $TagName
             target_commitish = $Branch
             name = $Name
@@ -181,7 +181,7 @@ function Publish-GitHubRelease {
             -ContentType "application/json; charset=utf-8"
     } finally {
         if ($release) {
-            $patchBody = ConvertTo-Utf8JsonBytes @{
+            $patchBody = ConvertTo-Utf8JsonBytes -Value @{
                 name = $Name
                 body = $Body
                 draft = $IsDraft
