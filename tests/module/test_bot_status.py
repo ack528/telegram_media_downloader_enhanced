@@ -33,7 +33,7 @@ class BotStatusTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(client.messages), 1)
         self.assertEqual(node.last_edit_msg, client.messages[0][2])
-        self.assertIn("Updated at:", node.last_edit_msg)
+        self.assertIn("更新时间:", node.last_edit_msg)
 
     async def test_edit_bot_status_timeout_does_not_record_success(self):
         client = FakeBotClient(delay=0.05)

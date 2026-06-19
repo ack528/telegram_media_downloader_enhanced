@@ -25,7 +25,7 @@ from module.app import (
 )
 from module.filter import Filter
 from module.get_chat_history_v2 import get_chat_history_v2
-from module.language import Language, _t
+from module.language import Language, _t, set_language as set_global_language
 from module.pyrogram_extension import (
     check_user_permission,
     get_utf16_length,
@@ -235,6 +235,12 @@ class DownloadBot:
         download_chat_task: Callable,
     ):
         """Start bot"""
+        self.app = app
+        self.client = client
+        self.add_download_task = add_download_task
+        self.download_chat_task = download_chat_task
+        set_global_language(self.app.language)
+
         self.bot = pyrogram.Client(
             app.application_name + "_bot",
             api_hash=app.api_hash,
@@ -275,11 +281,6 @@ class DownloadBot:
             types.BotCommand("set_language", _t("Set language")),
             types.BotCommand("stop", _t("Stop bot download or forward")),
         ]
-
-        self.app = app
-        self.client = client
-        self.add_download_task = add_download_task
-        self.download_chat_task = download_chat_task
 
         # load config
         if os.path.exists(self.config_path):
@@ -908,7 +909,7 @@ async def direct_download(
 ):
     """Direct Download"""
 
-    replay_message = "Direct download..."
+    replay_message = "直接下载中..."
     last_reply_message = await download_bot.bot.send_message(
         message.from_user.id, replay_message, reply_to_message_id=message.id
     )
@@ -1073,16 +1074,14 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
             entity = await _bot.client.get_chat(chat_id)
         if entity:
             chat_title = entity.title
-            reply_message = f"from {chat_title} "
+            reply_message = f"来自 {chat_title} "
             chat_download_config = ChatDownloadConfig()
             chat_download_config.last_read_message_id = start_offset_id
             chat_download_config.download_filter = download_filter
             chat_download_config.limit = limit
             chat_download_config.start_offset_id = start_offset_id
             chat_download_config.end_offset_id = end_offset_id
-            reply_message += (
-                f"download message id = {start_offset_id} - {end_offset_id} !"
-            )
+            reply_message += f"下载消息 ID = {start_offset_id} - {end_offset_id}！"
             last_reply_message = await client.send_message(
                 message.from_user.id, reply_message, reply_to_message_id=message.id
             )
