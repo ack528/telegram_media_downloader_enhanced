@@ -45,7 +45,7 @@ from utils.meta_data import MetaData
 logger.remove()
 logger.add(
     sys.stderr,
-    level="SUCCESS",
+    level="INFO",
     format="<green>{time:HH:mm:ss}</green> | <level>{message}</level>",
     filter=lambda record: record["extra"].get("console")
     or record["level"].no >= logger.level("WARNING").no,
@@ -992,11 +992,26 @@ async def download_all_chat(client: pyrogram.Client):
             value.need_check = True
             continue
 
+        retry_count = len(value.ids_to_retry)
+        continue_from_id = min(value.ids_to_retry) if value.ids_to_retry else (
+            value.last_read_message_id or value.start_offset_id
+        )
+        task_source = "机器人" if value.is_bot_task else "config"
+        task_kind = "异常中断恢复" if value.recover_only or retry_count else "启动"
+        range_text = (
+            f"{value.start_offset_id}-{value.end_offset_id or '最新'}"
+            if value.start_offset_id or value.end_offset_id
+            else "未指定"
+        )
         logger.bind(console=True).info(
-            "收到{}下载任务：chat_id={}，待恢复 ID {} 个。",
-            "机器人恢复" if value.is_bot_task else "config",
+            "收到{}{}下载任务：chat_id={}，从消息 ID {} 继续，"
+            "待恢复 ID {} 个，原范围 {}。",
+            task_source,
+            task_kind,
             key,
-            len(value.ids_to_retry),
+            continue_from_id or 0,
+            retry_count,
+            range_text,
         )
 
         if app.bot_token:
