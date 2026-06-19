@@ -315,6 +315,14 @@ class ChatDownloadConfig:
         self.finish_task: int = 0
         self.need_check: bool = False
         self.upload_telegram_chat_id: Union[int, str] = None
+        self.is_bot_task: bool = False
+        self.recover_only: bool = False
+        self.bot_from_user_id: Union[int, str] = None
+        self.bot_reply_message_id: int = 0
+        self.bot_reply_message: str = ""
+        self.limit: int = 0
+        self.start_offset_id: int = 0
+        self.end_offset_id: int = 0
         self.node: TaskNode = TaskNode(0)
 
 
@@ -418,7 +426,7 @@ class Application:
         self.web_host: str = "0.0.0.0"
         self.web_port: int = 5000
         self.max_download_task: int = 5
-        self.language = Language.EN
+        self.language = Language.ZH
         self.after_upload_telegram_delete: bool = True
         self.web_login_secret: str = ""
         self.debug_web: bool = False
@@ -538,7 +546,7 @@ class Application:
         if isinstance(clash_config, dict):
             self.clash_config.update(clash_config)
 
-        language = _config.get("language", "EN")
+        language = _config.get("language", "ZH")
 
         try:
             self.language = Language[language.upper()]
@@ -699,18 +707,53 @@ class Application:
             if app_data.get("chat"):
                 chats = app_data["chat"]
                 for chat in chats:
-                    if (
-                        "chat_id" in chat
-                        and chat["chat_id"] in self.chat_download_config
-                    ):
-                        chat_id = chat["chat_id"]
-                        self.chat_download_config[chat_id].ids_to_retry = chat.get(
-                            "ids_to_retry", []
+                    if "chat_id" not in chat:
+                        continue
+
+                    chat_id = chat["chat_id"]
+                    if chat_id not in self.chat_download_config:
+                        self.chat_download_config[chat_id] = ChatDownloadConfig()
+
+                    chat_download_config = self.chat_download_config[chat_id]
+                    chat_download_config.ids_to_retry = chat.get("ids_to_retry", [])
+                    chat_download_config.ids_to_retry_dict = {}
+                    for it in chat_download_config.ids_to_retry:
+                        chat_download_config.ids_to_retry_dict[it] = True
+
+                    chat_download_config.is_bot_task = chat.get("bot_task", False)
+                    chat_download_config.recover_only = chat.get(
+                        "recover_only", chat_download_config.is_bot_task
+                    )
+                    chat_download_config.bot_from_user_id = chat.get(
+                        "bot_from_user_id"
+                    )
+                    chat_download_config.bot_reply_message_id = chat.get(
+                        "bot_reply_message_id", 0
+                    )
+                    chat_download_config.bot_reply_message = chat.get(
+                        "bot_reply_message", ""
+                    )
+                    chat_download_config.download_filter = chat.get(
+                        "download_filter", chat_download_config.download_filter
+                    )
+                    chat_download_config.last_read_message_id = chat.get(
+                        "last_read_message_id",
+                        chat_download_config.last_read_message_id,
+                    )
+                    chat_download_config.limit = chat.get("limit", 0)
+                    chat_download_config.start_offset_id = chat.get("start_offset_id", 0)
+                    chat_download_config.end_offset_id = chat.get("end_offset_id", 0)
+                    chat_download_config.upload_telegram_chat_id = chat.get(
+                        "upload_telegram_chat_id",
+                        chat_download_config.upload_telegram_chat_id,
+                    )
+
+                    if chat_download_config.is_bot_task:
+                        logger.info(
+                            "Loaded bot recovery task: chat_id={}, pending_ids={}",
+                            chat_id,
+                            len(chat_download_config.ids_to_retry),
                         )
-                        for it in self.chat_download_config[chat_id].ids_to_retry:
-                            self.chat_download_config[chat_id].ids_to_retry_dict[
-                                it
-                            ] = True
         return True
 
     async def upload_file(
@@ -863,12 +906,10 @@ class Application:
         immediate: bool
             If update config immediate,default True
         """
-        # TODO: fix this not exist chat
-        if not self.app_data.get("chat") and self.config.get("chat"):
-            self.app_data["chat"] = [
-                {"chat_id": i} for i in range(0, len(self.config["chat"]))
-            ]
-        idx = 0
+        self.app_data["chat"] = []
+        config_chat_map = {
+            chat.get("chat_id"): chat for chat in self.config.get("chat", [])
+        }
         # pylint: disable = R1733
         for key, value in self.chat_download_config.items():
             # pylint: disable = W0201
@@ -889,17 +930,34 @@ class Application:
 
             self.chat_download_config[key].ids_to_retry = list(unfinished_ids)
 
-            if idx >= len(self.app_data["chat"]):
-                self.app_data["chat"].append({})
-
-            if value.finish_task:
-                self.config["chat"][idx]["last_read_message_id"] = (
+            if value.finish_task and key in config_chat_map:
+                config_chat_map[key]["last_read_message_id"] = (
                     value.last_read_message_id + 1
                 )
 
-            self.app_data["chat"][idx]["chat_id"] = key
-            self.app_data["chat"][idx]["ids_to_retry"] = value.ids_to_retry
-            idx += 1
+            app_chat = {
+                "chat_id": key,
+                "ids_to_retry": value.ids_to_retry,
+            }
+
+            if value.is_bot_task:
+                app_chat.update(
+                    {
+                        "bot_task": True,
+                        "recover_only": value.recover_only,
+                        "bot_from_user_id": value.bot_from_user_id,
+                        "bot_reply_message_id": value.bot_reply_message_id,
+                        "bot_reply_message": value.bot_reply_message,
+                        "download_filter": value.download_filter,
+                        "last_read_message_id": value.last_read_message_id,
+                        "limit": value.limit,
+                        "start_offset_id": value.start_offset_id,
+                        "end_offset_id": value.end_offset_id,
+                        "upload_telegram_chat_id": value.upload_telegram_chat_id,
+                    }
+                )
+
+            self.app_data["chat"].append(app_chat)
 
         self.config["save_path"] = self.save_path
         self.config["file_path_prefix"] = self.file_path_prefix

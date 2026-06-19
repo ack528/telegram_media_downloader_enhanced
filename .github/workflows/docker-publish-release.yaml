@@ -1,9 +1,7 @@
 name: Create Release and Upload Assets
 
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build-tdl-binaries:

@@ -13,7 +13,7 @@ from pyrogram.types import Audio, Document, Photo, Video, VideoNote, Voice
 from rich.logging import RichHandler
 
 from module.app import Application, ChatDownloadConfig, DownloadStatus, TaskNode
-from module.bot import start_download_bot, stop_download_bot
+from module.bot import get_download_bot, start_download_bot, stop_download_bot
 from module.clash_controller import ClashController
 from module.download_stat import (
     get_active_download_count,
@@ -349,6 +349,13 @@ async def add_download_task(
     app.mark_download_pending(node, message.id)
     await queue.put((message, node))
     node.total_task += 1
+    logger.info(
+        "Queued download task: task_id={}, chat_id={}, message_id={}, queue_size={}",
+        node.task_id,
+        node.chat_id,
+        message.id,
+        queue.qsize(),
+    )
     app.update_config(True)
     return True
 
@@ -455,6 +462,13 @@ async def download_task(
     client: pyrogram.Client, message: pyrogram.types.Message, node: TaskNode
 ):
     """Download and Forward media"""
+    task_started_at = time.time()
+    logger.info(
+        "Download task started: task_id={}, chat_id={}, message_id={}",
+        node.task_id,
+        node.chat_id,
+        message.id,
+    )
 
     download_status, file_name = await download_media(
         client, message, app.media_types, app.file_formats, node
@@ -463,8 +477,7 @@ async def download_task(
     if app.enable_download_txt and message.text and not message.media:
         download_status, file_name = await save_msg_to_file(app, node.chat_id, message)
 
-    if not node.bot:
-        app.set_download_id(node, message.id, download_status)
+    app.set_download_id(node, message.id, download_status)
 
     node.download_status[message.id] = download_status
     app.mark_download_finished(node, message.id, download_status)
@@ -500,6 +513,16 @@ async def download_task(
         node,
         download_status,
         file_size,
+    )
+    logger.info(
+        "Download task finished: task_id={}, chat_id={}, message_id={}, status={}, "
+        "file_size={}, elapsed={:.1f}s",
+        node.task_id,
+        node.chat_id,
+        message.id,
+        download_status.name,
+        file_size,
+        time.time() - task_started_at,
     )
 
 
@@ -675,6 +698,29 @@ def _check_config() -> bool:
             retention="10 days",
             level=app.log_level,
         )
+        logger.info(
+            "Runtime paths: base_path={}, config_file={}, app_data_file={}, "
+            "save_path={}, temp_path={}, log_path={}, session_path={}",
+            app.base_path,
+            app.config_file,
+            app.app_data_file,
+            app.save_path,
+            app.temp_save_path,
+            app.log_file_path,
+            app.session_file_path,
+        )
+        logger.info(
+            "Runtime options: version={}, language={}, bot_enabled={}, "
+            "max_download_task={}, max_concurrent_transmissions={}, "
+            "download_stall_timeout={}s, clash_enabled={}",
+            __import__("utils").__version__,
+            app.language.name,
+            bool(app.bot_token),
+            app.max_download_task,
+            app.max_concurrent_transmissions,
+            app.download_stall_timeout,
+            app.clash_config.get("enabled", True),
+        )
     except Exception as e:
         logger.exception(f"load config error: {e}")
         return False
@@ -693,6 +739,15 @@ async def worker(client: pyrogram.client.Client):
 
             if node.is_stop_transmission:
                 continue
+
+            logger.info(
+                "Worker picked task: task_id={}, chat_id={}, message_id={}, "
+                "queue_size={}",
+                node.task_id,
+                node.chat_id,
+                message.id,
+                queue.qsize(),
+            )
 
             if node.client:
                 await download_task(node.client, message, node)
@@ -739,13 +794,31 @@ async def download_chat_task(
     chat_download_config.node = node
 
     if chat_download_config.ids_to_retry:
-        logger.info(f"{_t('Downloading files failed during last run')}...")
+        logger.info(
+            "{}: chat_id={}, pending_ids={}, recover_only={}",
+            _t("Downloading files failed during last run"),
+            node.chat_id,
+            len(chat_download_config.ids_to_retry),
+            chat_download_config.recover_only,
+        )
         skipped_messages: list = await client.get_messages(  # type: ignore
             chat_id=node.chat_id, message_ids=chat_download_config.ids_to_retry
         )
 
         for message in skipped_messages:
             await add_download_task(message, node)
+
+    if chat_download_config.recover_only:
+        chat_download_config.need_check = True
+        chat_download_config.total_task = node.total_task
+        node.is_running = True
+        logger.info(
+            "Recovery-only task queued: task_id={}, chat_id={}, total_task={}",
+            node.task_id,
+            node.chat_id,
+            node.total_task,
+        )
+        return
 
     async for message in messages_iter:  # type: ignore
         meta_data = MetaData()
@@ -786,11 +859,43 @@ async def download_chat_task(
 async def download_all_chat(client: pyrogram.Client):
     """Download All chat"""
     for key, value in app.chat_download_config.items():
-        value.node = TaskNode(chat_id=key)
+        if value.recover_only and not value.ids_to_retry:
+            logger.info("Skip empty recovered bot task: chat_id={}", key)
+            value.need_check = True
+            continue
+
+        if app.bot_token:
+            reply_message = (
+                f"恢复机器人下载任务: {key}"
+                if value.is_bot_task
+                else f"config.yaml 会话下载任务: {key}"
+            )
+            value.node = await get_download_bot().create_status_node(
+                key,
+                value,
+                reply_message,
+                value.bot_from_user_id,
+            )
+        else:
+            value.node = TaskNode(
+                chat_id=key,
+                limit=value.limit,
+                start_offset_id=value.start_offset_id,
+                end_offset_id=value.end_offset_id,
+                download_filter=value.download_filter,
+            )
         try:
+            logger.info(
+                "Start chat download task: task_id={}, chat_id={}, recover_only={}, "
+                "pending_ids={}",
+                value.node.task_id,
+                key,
+                value.recover_only,
+                len(value.ids_to_retry),
+            )
             await download_chat_task(client, value, value.node)
         except Exception as e:
-            logger.warning(f"Download {key} error: {e}")
+            logger.exception("Download {} error: {}", key, e)
         finally:
             value.need_check = True
 
@@ -936,17 +1041,17 @@ def main():
         app.loop.run_until_complete(start_server(client))
         logger.success(_t("Successfully started (Press Ctrl+C to stop)"))
 
+        if app.bot_token:
+            app.loop.run_until_complete(
+                start_download_bot(app, client, add_download_task, download_chat_task)
+            )
+
         app.loop.create_task(download_all_chat(client))
         tasks.append(app.loop.create_task(monitor_low_download_speed()))
         tasks.append(app.loop.create_task(log_download_heartbeat()))
         for _ in range(app.max_download_task):
             task = app.loop.create_task(worker(client))
             tasks.append(task)
-
-        if app.bot_token:
-            app.loop.run_until_complete(
-                start_download_bot(app, client, add_download_task, download_chat_task)
-            )
         _exec_loop()
     except KeyboardInterrupt:
         logger.info(_t("KeyboardInterrupt"))

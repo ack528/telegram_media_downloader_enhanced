@@ -277,7 +277,7 @@ file_name_prefix_split: ' - '
 max_download_task: 5
 web_host: 127.0.0.1
 web_port: 5000
-language: EN
+language: ZH
 web_login_secret: 123
 allowed_user_ids:
 - 'me'
@@ -316,7 +316,7 @@ enable_download_txt: false
 - **hide_file_name** - Whether to hide the web interface file name, default `false`
 - **web_host** - Web host
 - **web_port** - Web port
-- **language** - Application language, the default is English (`EN`), optional `ZH`(Chinese),`RU`,`UA`
+- **language** - Application language, the default is Chinese (`ZH`), optional `EN`,`RU`,`UA`
 - **web_login_secret** - Web page login password, if not configured, no login is required to access the web page
 - **log_level** - see `logging._nameToLevel`.
 - **forward_limit** - Limit the number of forwards per minute, the default is 33, please do not modify this parameter by default.

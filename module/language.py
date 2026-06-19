@@ -13,7 +13,7 @@ class Language(Enum):
     UA = 4  # ukrainian
 
 
-_language = Language.EN
+_language = Language.ZH
 
 
 def set_language(language: Language):

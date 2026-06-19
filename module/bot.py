@@ -79,6 +79,13 @@ class DownloadBot:
     def add_task_node(self, node: TaskNode):
         """Add task node"""
         self.task_node[node.task_id] = node
+        logger.info(
+            "Bot task registered: task_id={}, chat_id={}, from_user={}, type={}",
+            node.task_id,
+            node.chat_id,
+            node.from_user_id,
+            node.task_type.name,
+        )
 
     def remove_task_node(self, task_id: int):
         """Remove task node"""
@@ -96,6 +103,90 @@ class DownloadBot:
                     task.stop_transmission()
             except Exception:
                 return
+
+    def get_default_notify_user_id(self):
+        """Return the best bot user id for background notifications."""
+        if self.allowed_user_ids:
+            return self.allowed_user_ids[0]
+        if self.bot_info:
+            return self.bot_info.id
+        return None
+
+    def remember_download_task(
+        self,
+        chat_download_config: ChatDownloadConfig,
+        node: TaskNode,
+        recover_only: bool = False,
+    ):
+        """Persist a bot-created download task for restart recovery."""
+        chat_download_config.is_bot_task = True
+        chat_download_config.recover_only = recover_only
+        chat_download_config.bot_from_user_id = node.from_user_id
+        chat_download_config.bot_reply_message_id = node.reply_message_id
+        chat_download_config.bot_reply_message = node.reply_message or ""
+        chat_download_config.limit = node.limit
+        chat_download_config.start_offset_id = node.start_offset_id
+        chat_download_config.end_offset_id = node.end_offset_id
+        chat_download_config.upload_telegram_chat_id = node.upload_telegram_chat_id
+        chat_download_config.download_filter = (
+            node.download_filter or chat_download_config.download_filter
+        )
+        chat_download_config.node = node
+        self.app.chat_download_config[node.chat_id] = chat_download_config
+        self.app.update_config(True)
+        logger.info(
+            "Bot task persisted: task_id={}, chat_id={}, recover_only={}, pending_ids={}",
+            node.task_id,
+            node.chat_id,
+            recover_only,
+            len(chat_download_config.ids_to_retry),
+        )
+
+    async def create_status_node(
+        self,
+        chat_id: Union[int, str],
+        chat_download_config: ChatDownloadConfig,
+        reply_message: str,
+        from_user_id: Union[int, str] = None,
+    ) -> TaskNode:
+        """Create a task node with a bot status message when possible."""
+        notify_user_id = from_user_id or chat_download_config.bot_from_user_id
+        notify_user_id = notify_user_id or self.get_default_notify_user_id()
+        last_reply_message = None
+
+        if notify_user_id and self.bot:
+            try:
+                last_reply_message = await self.bot.send_message(
+                    notify_user_id,
+                    reply_message,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to create bot status message for chat_id={}: {}",
+                    chat_id,
+                    exc,
+                )
+
+        node = TaskNode(
+            chat_id=chat_id,
+            from_user_id=notify_user_id,
+            reply_message_id=last_reply_message.id if last_reply_message else 0,
+            replay_message=reply_message,
+            upload_telegram_chat_id=chat_download_config.upload_telegram_chat_id,
+            download_filter=chat_download_config.download_filter,
+            limit=chat_download_config.limit,
+            start_offset_id=chat_download_config.start_offset_id,
+            end_offset_id=chat_download_config.end_offset_id,
+            bot=self.bot if last_reply_message else None,
+            task_id=self.gen_task_id(),
+        )
+        chat_download_config.bot_from_user_id = notify_user_id
+        chat_download_config.bot_reply_message_id = node.reply_message_id
+        chat_download_config.bot_reply_message = reply_message
+        chat_download_config.node = node
+        if node.bot:
+            self.add_task_node(node)
+        return node
 
     async def update_reply_message(self):
         """Update reply message"""
@@ -316,6 +407,11 @@ class DownloadBot:
 
 
 _bot = DownloadBot()
+
+
+def get_download_bot() -> DownloadBot:
+    """Return singleton download bot."""
+    return _bot
 
 
 async def start_download_bot(
@@ -829,6 +925,10 @@ async def direct_download(
 
     node.client = client
 
+    chat_download_config = ChatDownloadConfig()
+    chat_download_config.last_read_message_id = download_message.id
+    download_bot.remember_download_task(chat_download_config, node, recover_only=True)
+
     _bot.add_task_node(node)
 
     await _bot.add_download_task(
@@ -977,6 +1077,9 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
             chat_download_config = ChatDownloadConfig()
             chat_download_config.last_read_message_id = start_offset_id
             chat_download_config.download_filter = download_filter
+            chat_download_config.limit = limit
+            chat_download_config.start_offset_id = start_offset_id
+            chat_download_config.end_offset_id = end_offset_id
             reply_message += (
                 f"download message id = {start_offset_id} - {end_offset_id} !"
             )
@@ -991,9 +1094,11 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
                 limit=limit,
                 start_offset_id=start_offset_id,
                 end_offset_id=end_offset_id,
+                download_filter=download_filter,
                 bot=_bot.bot,
                 task_id=_bot.gen_task_id(),
             )
+            _bot.remember_download_task(chat_download_config, node, recover_only=False)
             _bot.add_task_node(node)
             _bot.app.loop.create_task(
                 _bot.download_chat_task(_bot.client, chat_download_config, node)
