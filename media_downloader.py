@@ -129,6 +129,36 @@ def _temp_download_path(temp_file_name: str) -> str:
     return f"{temp_file_name}.temp"
 
 
+def _remove_file_if_exists(file_path: str):
+    """Remove a stale helper file if it exists."""
+    if os.path.exists(file_path):
+        os.remove(file_path)
+
+
+def _cleanup_stale_temp_files(temp_file_name: str):
+    """Clean temp files that are no longer needed after a final file exists."""
+    _remove_file_if_exists(temp_file_name)
+    _remove_file_if_exists(_temp_download_path(temp_file_name))
+
+
+def _move_partial_to_resume(
+    partial_path: str, temp_file_name: str, media_size: int
+) -> int:
+    """Move a partial file into the resumable temp path, preserving more progress."""
+    resume_path = _temp_download_path(temp_file_name)
+    partial_size = os.path.getsize(partial_path)
+    resume_size = os.path.getsize(resume_path) if os.path.exists(resume_path) else 0
+    resume_is_valid = bool(media_size and 0 < resume_size <= media_size)
+
+    if resume_is_valid and resume_size >= partial_size:
+        os.remove(partial_path)
+        return resume_size
+
+    os.makedirs(os.path.dirname(resume_path), exist_ok=True)
+    os.replace(partial_path, resume_path)
+    return partial_size
+
+
 def _align_resume_size(file_path: str, media_size: int) -> int:
     """Align an existing temp file to Telegram's 1MB download chunks."""
     if not os.path.exists(file_path):
@@ -157,15 +187,15 @@ def _recover_existing_download(
             logger.debug(
                 f"id file {ui_file_name} {_t('already download,download skipped')}.\n"
             )
+            _cleanup_stale_temp_files(temp_file_name)
             return DownloadStatus.SkipDownload
 
         if media_size and 0 < file_size < media_size:
-            os.makedirs(os.path.dirname(_temp_download_path(temp_file_name)), exist_ok=True)
-            os.replace(file_name, _temp_download_path(temp_file_name))
+            resume_size = _move_partial_to_resume(file_name, temp_file_name, media_size)
             logger.warning(
                 "Resume partial final file: {} ({}/{})",
                 ui_file_name,
-                file_size,
+                resume_size,
                 media_size,
             )
         else:
@@ -185,8 +215,7 @@ def _recover_existing_download(
             return DownloadStatus.SuccessDownload
 
         if media_size and 0 < temp_size < media_size:
-            os.makedirs(os.path.dirname(_temp_download_path(temp_file_name)), exist_ok=True)
-            os.replace(temp_file_name, _temp_download_path(temp_file_name))
+            _move_partial_to_resume(temp_file_name, temp_file_name, media_size)
         else:
             os.remove(temp_file_name)
 
@@ -357,9 +386,15 @@ async def add_download_task(
     """Add Download task"""
     if message.empty:
         return False
+    node.is_running = True
     node.download_status[message.id] = DownloadStatus.Downloading
     app.mark_download_pending(node, message.id)
     await queue.put((message, node))
+    if node.total_task == 0:
+        logger.bind(console=True).info(
+            "任务 {} 已发现首个可下载媒体，开始加入下载队列并启动下载。",
+            node.task_id,
+        )
     node.total_task += 1
     logger.debug(
         "Queued download task: task_id={}, chat_id={}, message_id={}, queue_size={}",
@@ -370,6 +405,31 @@ async def add_download_task(
     )
     app.update_config(True)
     return True
+
+
+async def wait_for_scan_prefetch_window(
+    chat_download_config: ChatDownloadConfig,
+    node: TaskNode,
+):
+    """Limit how far message scanning can run ahead of active downloads."""
+    prefetch_limit = int(getattr(app, "scan_prefetch_limit", 0) or 0)
+    if prefetch_limit <= 0:
+        return
+
+    notified = False
+    while app.is_running and not node.is_stop_transmission:
+        unfinished_count = node.total_task - chat_download_config.finish_task
+        if unfinished_count < prefetch_limit:
+            return
+
+        if not notified:
+            logger.bind(console=True).info(
+                "任务 {} 已达到预取上限 {}，等待下载完成后继续扫描。",
+                node.task_id,
+                prefetch_limit,
+            )
+            notified = True
+        await asyncio.sleep(1)
 
 
 async def save_msg_to_file(
@@ -725,13 +785,17 @@ def _check_config() -> bool:
         logger.info(
             "Runtime options: version={}, language={}, bot_enabled={}, "
             "max_download_task={}, max_concurrent_transmissions={}, "
-            "download_stall_timeout={}s, clash_enabled={}",
+            "download_stall_timeout={}s, history_fetch_timeout={}s, "
+            "history_fetch_retries={}, scan_prefetch_limit={}, clash_enabled={}",
             __import__("utils").__version__,
             app.language.name,
             bool(app.bot_token),
             app.max_download_task,
             app.max_concurrent_transmissions,
             app.download_stall_timeout,
+            app.history_fetch_timeout,
+            app.history_fetch_retries,
+            app.scan_prefetch_limit,
             app.clash_config.get("enabled", True),
         )
     except Exception as e:
@@ -802,6 +866,8 @@ async def download_chat_task(
         max_id=node.end_offset_id,
         offset_id=chat_download_config.last_read_message_id,
         reverse=True,
+        request_timeout=app.history_fetch_timeout,
+        retry_count=app.history_fetch_retries,
     )
 
     chat_download_config.node = node
@@ -819,6 +885,7 @@ async def download_chat_task(
         )
 
         for message in skipped_messages:
+            await wait_for_scan_prefetch_window(chat_download_config, node)
             await add_download_task(message, node)
 
     if chat_download_config.recover_only:
@@ -833,44 +900,82 @@ async def download_chat_task(
         )
         return
 
-    async for message in messages_iter:  # type: ignore
-        meta_data = MetaData()
+    queued_before_history = node.total_task
+    try:
+        async for message in messages_iter:  # type: ignore
+            meta_data = MetaData()
 
-        caption = message.caption
-        if caption:
-            caption = validate_title(caption)
-            app.set_caption_name(node.chat_id, message.media_group_id, caption)
-            app.set_caption_entities(
-                node.chat_id, message.media_group_id, message.caption_entities
-            )
-        else:
-            caption = app.get_caption_name(node.chat_id, message.media_group_id)
-        set_meta_data(meta_data, message, caption)
-
-        if app.need_skip_message(chat_download_config, message.id):
-            continue
-
-        if app.exec_filter(chat_download_config, meta_data):
-            await add_download_task(message, node)
-        else:
-            node.download_status[message.id] = DownloadStatus.SkipDownload
-            if message.media_group_id:
-                await upload_telegram_chat(
-                    client,
-                    node.upload_user,
-                    app,
-                    node,
-                    message,
-                    DownloadStatus.SkipDownload,
+            caption = message.caption
+            if caption:
+                caption = validate_title(caption)
+                app.set_caption_name(node.chat_id, message.media_group_id, caption)
+                app.set_caption_entities(
+                    node.chat_id, message.media_group_id, message.caption_entities
                 )
+            else:
+                caption = app.get_caption_name(node.chat_id, message.media_group_id)
+            set_meta_data(meta_data, message, caption)
+
+            if app.need_skip_message(chat_download_config, message.id):
+                continue
+
+            if app.exec_filter(chat_download_config, meta_data):
+                await wait_for_scan_prefetch_window(chat_download_config, node)
+                await add_download_task(message, node)
+            else:
+                node.download_status[message.id] = DownloadStatus.SkipDownload
+                if message.media_group_id:
+                    await upload_telegram_chat(
+                        client,
+                        node.upload_user,
+                        app,
+                        node,
+                        message,
+                        DownloadStatus.SkipDownload,
+                    )
+    except Exception as exc:
+        chat_download_config.need_check = True
+        node.is_running = False
+        logger.exception(
+            "Read chat history failed: task_id={}, chat_id={}, "
+            "last_read_message_id={}, error={}",
+            node.task_id,
+            node.chat_id,
+            chat_download_config.last_read_message_id,
+            exc,
+        )
+        return
 
     chat_download_config.need_check = True
     chat_download_config.total_task = node.total_task
     node.is_running = True
+    if node.total_task == queued_before_history:
+        logger.info(
+            "No new downloadable messages found: task_id={}, chat_id={}, "
+            "last_read_message_id={}",
+            node.task_id,
+            node.chat_id,
+            chat_download_config.last_read_message_id,
+        )
+    else:
+        logger.info(
+            "Chat history queued: task_id={}, chat_id={}, queued={}",
+            node.task_id,
+            node.chat_id,
+            node.total_task - queued_before_history,
+        )
 
 
 async def download_all_chat(client: pyrogram.Client):
     """Download All chat"""
+    if app.chat_download_config:
+        logger.bind(console=True).info(
+            "检测到 {} 个 config/恢复下载任务，开始扫描消息并加入下载队列。",
+            len(app.chat_download_config),
+        )
+    else:
+        logger.bind(console=True).info("config.yaml 未配置会话下载任务，等待机器人命令。")
+
     for key, value in app.chat_download_config.items():
         if value.recover_only and not value.ids_to_retry:
             logger.info("Skip empty recovered bot task: chat_id={}", key)
@@ -905,6 +1010,11 @@ async def download_all_chat(client: pyrogram.Client):
                 key,
                 value.recover_only,
                 len(value.ids_to_retry),
+            )
+            logger.bind(console=True).info(
+                "开始下载任务 {}：chat_id={}，正在扫描消息并边扫描边下载。",
+                value.node.task_id,
+                key,
             )
             await download_chat_task(client, value, value.node)
         except Exception as e:
@@ -1058,8 +1168,10 @@ def main():
             app.loop.run_until_complete(
                 start_download_bot(app, client, add_download_task, download_chat_task)
             )
+            logger.bind(console=True).success("机器人已启动，等待命令。")
 
         app.loop.create_task(download_all_chat(client))
+        logger.bind(console=True).success("软件启动完成，下载工作线程已就绪。")
         tasks.append(app.loop.create_task(monitor_low_download_speed()))
         tasks.append(app.loop.create_task(log_download_heartbeat()))
         for _ in range(app.max_download_task):

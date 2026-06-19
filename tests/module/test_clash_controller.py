@@ -5,14 +5,20 @@ from module.clash_controller import ClashController
 
 
 class FakeResponse:
-    def __init__(self, payload=None):
+    def __init__(self, payload=None, lines=None):
         self.payload = payload or {}
+        self.lines = lines
 
     def raise_for_status(self):
         return None
 
     def json(self):
         return self.payload
+
+    def iter_lines(self, chunk_size=1, decode_unicode=True):
+        if self.lines is None:
+            return iter(())
+        return iter(self.lines)
 
 
 class ClashControllerTestCase(unittest.TestCase):
@@ -87,7 +93,8 @@ class ClashControllerTestCase(unittest.TestCase):
             self.assertEqual(method, "GET")
             self.assertTrue(url.endswith("/traffic"))
             self.assertEqual(kwargs["timeout"], 1.5)
-            return FakeResponse({"up": 1024, "down": 2048})
+            self.assertTrue(kwargs["stream"])
+            return FakeResponse(lines=['{"up":1024,"down":2048}'])
 
         with mock.patch("module.clash_controller.requests.request", fake_request):
             traffic = ClashController(

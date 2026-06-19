@@ -58,28 +58,57 @@ FETCH_MESSAGE_TIMEOUT = 30
 FETCH_MESSAGE_RETRY_COUNT = 5
 FETCH_MESSAGE_RETRY_DELAY = 3
 CLASH_TRAFFIC_CACHE_SECONDS = 2
+CLASH_TRAFFIC_STATUS_TIMEOUT = 3.0
 _status_clash_config: dict = {}
 _status_clash_traffic_cache = {"time": 0.0, "down": None}
+_status_clash_traffic_task = None
 
 
 def set_status_clash_config(config: dict):
     """Set Clash config used by bot status messages."""
-    global _status_clash_config
+    global _status_clash_config, _status_clash_traffic_task
     _status_clash_config = dict(config or {})
+    _status_clash_traffic_cache["time"] = 0.0
+    _status_clash_traffic_cache["down"] = None
+    _status_clash_traffic_task = None
 
 
-def _get_cached_clash_download_speed():
+async def _refresh_clash_download_speed(config: dict):
+    """Refresh Clash traffic speed without blocking status rendering."""
+    try:
+        traffic = await asyncio.wait_for(
+            asyncio.to_thread(
+                ClashController(config).get_traffic_speed,
+                CLASH_TRAFFIC_STATUS_TIMEOUT,
+            ),
+            timeout=CLASH_TRAFFIC_STATUS_TIMEOUT + 1,
+        )
+    except Exception as exc:
+        logger.debug("Clash traffic status query skipped: {}", exc)
+        traffic = None
+
+    _status_clash_traffic_cache["time"] = time.time()
+    _status_clash_traffic_cache["down"] = traffic.down if traffic else None
+
+
+async def _get_cached_clash_download_speed():
     """Return cached Clash download speed in bytes per second."""
+    global _status_clash_traffic_task
     if not _status_clash_config or not _status_clash_config.get("enabled", True):
         return None
 
     now = time.time()
-    if now - _status_clash_traffic_cache["time"] < CLASH_TRAFFIC_CACHE_SECONDS:
-        return _status_clash_traffic_cache["down"]
+    if (
+        now - _status_clash_traffic_cache["time"] >= CLASH_TRAFFIC_CACHE_SECONDS
+        and (
+            _status_clash_traffic_task is None
+            or _status_clash_traffic_task.done()
+        )
+    ):
+        _status_clash_traffic_task = asyncio.create_task(
+            _refresh_clash_download_speed(dict(_status_clash_config))
+        )
 
-    traffic = ClashController(_status_clash_config).get_traffic_speed()
-    _status_clash_traffic_cache["time"] = now
-    _status_clash_traffic_cache["down"] = traffic.down if traffic else None
     return _status_clash_traffic_cache["down"]
 
 
@@ -1240,7 +1269,7 @@ async def _report_bot_status(
             upload_result_str = f"\n📤 {_t('Upload Progresses')}:\n" + upload_result_str
 
         status_update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        clash_download_speed = _format_speed(_get_cached_clash_download_speed())
+        clash_download_speed = _format_speed(await _get_cached_clash_download_speed())
         software_download_speed = _format_speed(get_total_download_speed())
         new_msg_str = (
             f"`\n"

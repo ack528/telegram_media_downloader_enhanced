@@ -160,12 +160,26 @@ class DownloadBot:
                     notify_user_id,
                     reply_message,
                 )
+                logger.info(
+                    "Created bot status message: chat_id={}, notify_user_id={}, "
+                    "message_id={}",
+                    chat_id,
+                    notify_user_id,
+                    last_reply_message.id,
+                )
             except Exception as exc:
                 logger.warning(
                     "Failed to create bot status message for chat_id={}: {}",
                     chat_id,
                     exc,
                 )
+        else:
+            logger.warning(
+                "Skip bot status message: chat_id={}, notify_user_id={}, bot_ready={}",
+                chat_id,
+                notify_user_id,
+                bool(self.bot),
+            )
 
         node = TaskNode(
             chat_id=chat_id,
@@ -201,7 +215,7 @@ class DownloadBot:
                         self.remove_task_node(key)
             except Exception as exc:
                 logger.warning("Bot status loop failed: {}", exc)
-            await asyncio.sleep(3)
+            await asyncio.sleep(5)
 
     def assign_config(self, _config: dict):
         """assign config from str.
@@ -1096,6 +1110,12 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
                 download_filter=download_filter,
                 bot=_bot.bot,
                 task_id=_bot.gen_task_id(),
+            )
+            logger.bind(console=True).info(
+                "收到机器人下载任务：chat_id={}, 消息范围 {}-{}，正在扫描并边扫描边下载。",
+                entity.id,
+                start_offset_id,
+                end_offset_id or "最新",
             )
             _bot.remember_download_task(chat_download_config, node, recover_only=False)
             _bot.add_task_node(node)

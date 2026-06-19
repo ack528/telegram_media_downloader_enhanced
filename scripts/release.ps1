@@ -247,6 +247,9 @@ if (-not $SkipTests) {
         "tests.module.test_clash_controller",
         "tests.module.test_resilience",
         "tests.module.test_app_recovery",
+        "tests.module.test_existing_file_recovery",
+        "tests.module.test_history_timeout",
+        "tests.module.test_scan_prefetch",
         "tests.utils.test_format"
     )
     Invoke-Checked ".\.venv\Scripts\python.exe" @(
@@ -258,7 +261,8 @@ if (-not $SkipTests) {
         "module\download_stat.py",
         "module\pyrogram_extension.py",
         "module\clash_controller.py",
-        "module\network_watchdog.py"
+        "module\network_watchdog.py",
+        "module\get_chat_history_v2.py"
     )
 }
 

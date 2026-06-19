@@ -22,6 +22,9 @@ media_types:
 - voice
 - video_note
 download_stall_timeout: 90
+history_fetch_timeout: 60
+history_fetch_retries: 3
+scan_prefetch_limit: 5
 clash:
   enabled: true
   controller: http://127.0.0.1:9097

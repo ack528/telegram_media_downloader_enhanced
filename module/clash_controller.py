@@ -1,5 +1,6 @@
 """Clash external controller helpers."""
 
+import json
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote
@@ -182,10 +183,21 @@ class ClashController:
         if not self.enabled:
             return None
 
+        response = None
         try:
-            response = self._request("GET", "/traffic", timeout=timeout)
+            response = self._request("GET", "/traffic", timeout=timeout, stream=True)
             response.raise_for_status()
-            payload = response.json()
+            if hasattr(response, "iter_lines"):
+                payload = None
+                for line in response.iter_lines(chunk_size=1, decode_unicode=True):
+                    if not line:
+                        continue
+                    payload = json.loads(line)
+                    break
+                if payload is None:
+                    return None
+            else:
+                payload = response.json()
             return ClashTraffic(
                 up=max(int(payload.get("up", 0)), 0),
                 down=max(int(payload.get("down", 0)), 0),
@@ -193,6 +205,9 @@ class ClashController:
         except Exception as exc:
             logger.debug("Clash traffic query failed: {}", exc)
             return None
+        finally:
+            if response is not None and hasattr(response, "close"):
+                response.close()
 
     def switch_to_fast_us_node(self) -> Optional[ClashSwitchResult]:
         """Switch selector to the lowest-latency US node that does not timeout."""

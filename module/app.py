@@ -21,6 +21,7 @@ from utils.format import replace_date_time, validate_title
 from utils.meta_data import MetaData
 
 _yaml = yaml.YAML()
+BOT_STATUS_REPLY_INTERVAL = 15.0
 # pylint: disable = R0902
 
 
@@ -244,7 +245,7 @@ class TaskNode:
                 the last reply is greater than 1 second, False otherwise.
         """
         cur_time = time.time()
-        if cur_time - self.last_reply_time > 1.0:
+        if cur_time - self.last_reply_time > BOT_STATUS_REPLY_INTERVAL:
             self.last_reply_time = cur_time
             return True
 
@@ -413,6 +414,8 @@ class Application:
         self.caption_entities_dict: dict = {}
         self.max_concurrent_transmissions: int = 1
         self.download_stall_timeout: int = 90
+        self.history_fetch_timeout: int = 60
+        self.history_fetch_retries: int = 3
         self.clash_config: dict = {
             "enabled": True,
             "controller": "http://127.0.0.1:9097",
@@ -426,6 +429,7 @@ class Application:
         self.web_host: str = "0.0.0.0"
         self.web_port: int = 5000
         self.max_download_task: int = 5
+        self.scan_prefetch_limit: int = 0
         self.language = Language.ZH
         self.after_upload_telegram_delete: bool = True
         self.web_login_secret: str = ""
@@ -533,6 +537,14 @@ class Application:
         self.max_download_task = _config.get(
             "max_download_task", self.max_download_task
         )
+        if "scan_prefetch_limit" in _config:
+            self.scan_prefetch_limit = get_config(
+                _config, "scan_prefetch_limit", self.scan_prefetch_limit, int
+            )
+            if self.scan_prefetch_limit < 0:
+                self.scan_prefetch_limit = self.max_download_task
+        else:
+            self.scan_prefetch_limit = self.max_download_task
 
         self.max_concurrent_transmissions = self.max_download_task * 5
 
@@ -541,6 +553,12 @@ class Application:
         )
         self.download_stall_timeout = get_config(
             _config, "download_stall_timeout", self.download_stall_timeout, int
+        )
+        self.history_fetch_timeout = get_config(
+            _config, "history_fetch_timeout", self.history_fetch_timeout, int
+        )
+        self.history_fetch_retries = get_config(
+            _config, "history_fetch_retries", self.history_fetch_retries, int
         )
         clash_config = _config.get("clash", {})
         if isinstance(clash_config, dict):

@@ -3,7 +3,11 @@ import unittest
 from unittest import mock
 
 from module.app import TaskNode
-from module.pyrogram_extension import _edit_bot_status_message, report_bot_status
+from module.pyrogram_extension import (
+    _edit_bot_status_message,
+    report_bot_status,
+    set_status_clash_config,
+)
 
 
 class FakeBotClient:
@@ -52,6 +56,38 @@ class BotStatusTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(updated)
         self.assertEqual(client.messages, [])
+
+    async def test_slow_clash_status_query_does_not_block_status_update(self):
+        client = FakeBotClient()
+        node = TaskNode(
+            chat_id="chat",
+            from_user_id=123,
+            reply_message_id=456,
+            bot=True,
+            task_id=1,
+        )
+
+        def slow_traffic_query(*_args, **_kwargs):
+            import time
+
+            time.sleep(2)
+            return None
+
+        set_status_clash_config({"enabled": True})
+        with (
+            mock.patch(
+                "module.pyrogram_extension.CLASH_TRAFFIC_STATUS_TIMEOUT", 0.01
+            ),
+            mock.patch(
+                "module.pyrogram_extension.ClashController.get_traffic_speed",
+                slow_traffic_query,
+            ),
+        ):
+            await asyncio.wait_for(
+                report_bot_status(client, node, immediate_reply=True), timeout=1
+            )
+
+        self.assertEqual(len(client.messages), 1)
 
 
 if __name__ == "__main__":
