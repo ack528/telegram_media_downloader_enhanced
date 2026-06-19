@@ -21,6 +21,9 @@ class ClashControllerTestCase(unittest.TestCase):
 
         def fake_request(method, url, **kwargs):
             calls.append((method, url, kwargs))
+            if method == "PATCH" and url.endswith("/configs"):
+                self.assertEqual(kwargs["json"], {"mode": "rule"})
+                return FakeResponse()
             if method == "GET" and url.endswith("/proxies"):
                 return FakeResponse(
                     {
@@ -65,6 +68,19 @@ class ClashControllerTestCase(unittest.TestCase):
             self.assertIsNone(controller.switch_to_fast_us_node())
 
         request.assert_not_called()
+
+    def test_find_selector_prefers_active_rule_provider_before_global(self):
+        controller = ClashController({})
+        selector, candidates = controller._find_selector(
+            {
+                "GLOBAL": {"all": ["DIRECT", "\u7f8e\u56fd global"]},
+                "manual-airport": {"all": ["HK 01", "\u7f8e\u56fd real"]},
+                "telegram": {"all": ["manual-airport", "DIRECT"], "now": "manual-airport"},
+            }
+        )
+
+        self.assertEqual(selector, "manual-airport")
+        self.assertEqual(candidates, ["HK 01", "\u7f8e\u56fd real"])
 
     def test_get_traffic_speed(self):
         def fake_request(method, url, **kwargs):

@@ -94,6 +94,16 @@ class ClashController:
         response.raise_for_status()
         return response.json().get("proxies", {})
 
+    def _ensure_rule_mode(self):
+        if not bool(self.config.get("force_rule_mode", True)):
+            return
+
+        try:
+            response = self._request("PATCH", "/configs", json={"mode": "rule"})
+            response.raise_for_status()
+        except Exception as exc:
+            logger.warning("Failed to switch Clash to rule mode: {}", exc)
+
     def _is_us_node(self, node_name: str) -> bool:
         lower_name = node_name.lower()
         return any(keyword in lower_name for keyword in self.us_keywords)
@@ -105,8 +115,21 @@ class ClashController:
                 return self.selector, proxy["all"]
             logger.warning("Configured Clash selector not found: {}", self.selector)
 
+        us_selectors = {
+            name: proxy["all"]
+            for name, proxy in proxies.items()
+            if proxy.get("all")
+            and any(self._is_us_node(node) for node in proxy["all"])
+        }
+
+        for name, proxy in proxies.items():
+            if name == "GLOBAL" or not proxy.get("all"):
+                continue
+            now = proxy.get("now")
+            if now in us_selectors and now != "GLOBAL":
+                return now, us_selectors[now]
+
         preferred_names = (
-            "GLOBAL",
             "Proxy",
             "PROXY",
             "\u8282\u70b9\u9009\u62e9",
@@ -115,15 +138,16 @@ class ClashController:
             "\U0001f680 \u7bc0\u9ede\u9078\u64c7",
         )
         for name in preferred_names:
-            proxy = proxies.get(name)
-            if proxy and proxy.get("all"):
-                return name, proxy["all"]
+            if name in us_selectors:
+                return name, us_selectors[name]
 
-        for name, proxy in proxies.items():
-            if not proxy.get("all"):
+        for name, candidates in us_selectors.items():
+            if name == "GLOBAL":
                 continue
-            if any(self._is_us_node(node) for node in proxy["all"]):
-                return name, proxy["all"]
+            return name, candidates
+
+        if "GLOBAL" in us_selectors:
+            return "GLOBAL", us_selectors["GLOBAL"]
 
         return None, []
 
@@ -175,6 +199,7 @@ class ClashController:
         if not self.enabled:
             return None
 
+        self._ensure_rule_mode()
         proxies = self._get_proxies()
         selector, candidates = self._find_selector(proxies)
         if not selector:
