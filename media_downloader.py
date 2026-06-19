@@ -686,6 +686,16 @@ async def download_media(
         return DownloadStatus.SkipDownload, None
 
     message_id = message.id
+    display_file_name = ui_file_name
+    if not app.hide_file_name:
+        display_file_name = os.path.basename(file_name)
+    logger.bind(console=True).info(
+        "开始下载媒体：任务 {}，消息 ID {}，类型 {}，文件 {}",
+        node.task_id,
+        message_id,
+        _type,
+        display_file_name,
+    )
 
     for retry in range(DOWNLOAD_RETRY_COUNT):
         try:
