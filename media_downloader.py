@@ -32,6 +32,7 @@ from module.pyrogram_extension import (
     report_bot_download_status,
     set_max_concurrent_transmissions,
     set_meta_data,
+    set_status_clash_config,
     update_cloud_upload_stat,
     upload_telegram_chat,
 )
@@ -709,6 +710,7 @@ def _check_config() -> bool:
             retention="10 days",
             level=app.log_level,
         )
+        set_status_clash_config(app.clash_config)
         logger.info(
             "Runtime paths: base_path={}, config_file={}, app_data_file={}, "
             "save_path={}, temp_path={}, log_path={}, session_path={}",

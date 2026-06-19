@@ -33,7 +33,9 @@ class BotStatusTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(client.messages), 1)
         self.assertEqual(node.last_edit_msg, client.messages[0][2])
-        self.assertIn("更新时间:", node.last_edit_msg)
+        self.assertIn("\u66f4\u65b0\u65f6\u95f4:", node.last_edit_msg)
+        self.assertIn("Clash \u4e0b\u8f7d\u901f\u5ea6:", node.last_edit_msg)
+        self.assertIn("\u8f6f\u4ef6\u603b\u4e0b\u8f7d\u901f\u5ea6:", node.last_edit_msg)
 
     async def test_edit_bot_status_timeout_does_not_record_success(self):
         client = FakeBotClient(delay=0.05)
@@ -54,3 +56,4 @@ class BotStatusTestCase(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

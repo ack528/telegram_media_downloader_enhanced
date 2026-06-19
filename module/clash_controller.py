@@ -34,6 +34,14 @@ class ClashSwitchResult:
     delay: int
 
 
+@dataclass
+class ClashTraffic:
+    """Current Clash traffic speed in bytes per second."""
+
+    up: int
+    down: int
+
+
 class ClashController:
     """Small wrapper for Clash external controller APIs."""
 
@@ -72,11 +80,12 @@ class ClashController:
 
     def _request(self, method: str, path: str, **kwargs):
         url = f"{self.base_url}{path}"
+        timeout = kwargs.pop("timeout", self.request_timeout)
         return requests.request(
             method,
             url,
             headers=self.headers,
-            timeout=self.request_timeout,
+            timeout=timeout,
             **kwargs,
         )
 
@@ -143,6 +152,23 @@ class ClashController:
             json={"name": node_name},
         )
         response.raise_for_status()
+
+    def get_traffic_speed(self, timeout: float = 1.5) -> Optional[ClashTraffic]:
+        """Return current Clash upload/download speed."""
+        if not self.enabled:
+            return None
+
+        try:
+            response = self._request("GET", "/traffic", timeout=timeout)
+            response.raise_for_status()
+            payload = response.json()
+            return ClashTraffic(
+                up=max(int(payload.get("up", 0)), 0),
+                down=max(int(payload.get("down", 0)), 0),
+            )
+        except Exception as exc:
+            logger.debug("Clash traffic query failed: {}", exc)
+            return None
 
     def switch_to_fast_us_node(self) -> Optional[ClashSwitchResult]:
         """Switch selector to the lowest-latency US node that does not timeout."""

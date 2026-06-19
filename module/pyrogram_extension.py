@@ -37,7 +37,8 @@ from module.app import (
     UploadProgressStat,
     UploadStatus,
 )
-from module.download_stat import get_download_result
+from module.clash_controller import ClashController
+from module.download_stat import get_download_result, get_total_download_speed
 from module.language import Language, _t
 from module.send_media_group_v2 import cache_media, send_media_group_v2
 from utils.format import (
@@ -56,6 +57,37 @@ BOT_STATUS_FLOOD_WAIT_PADDING = 1
 FETCH_MESSAGE_TIMEOUT = 30
 FETCH_MESSAGE_RETRY_COUNT = 5
 FETCH_MESSAGE_RETRY_DELAY = 3
+CLASH_TRAFFIC_CACHE_SECONDS = 2
+_status_clash_config: dict = {}
+_status_clash_traffic_cache = {"time": 0.0, "down": None}
+
+
+def set_status_clash_config(config: dict):
+    """Set Clash config used by bot status messages."""
+    global _status_clash_config
+    _status_clash_config = dict(config or {})
+
+
+def _get_cached_clash_download_speed():
+    """Return cached Clash download speed in bytes per second."""
+    if not _status_clash_config or not _status_clash_config.get("enabled", True):
+        return None
+
+    now = time.time()
+    if now - _status_clash_traffic_cache["time"] < CLASH_TRAFFIC_CACHE_SECONDS:
+        return _status_clash_traffic_cache["down"]
+
+    traffic = ClashController(_status_clash_config).get_traffic_speed()
+    _status_clash_traffic_cache["time"] = now
+    _status_clash_traffic_cache["down"] = traffic.down if traffic else None
+    return _status_clash_traffic_cache["down"]
+
+
+def _format_speed(speed):
+    """Format an optional speed value."""
+    if speed is None:
+        return _t("Unavailable")
+    return f"{format_byte(speed)}/s"
 
 
 def reset_download_cache():
@@ -1208,10 +1240,14 @@ async def _report_bot_status(
             upload_result_str = f"\n📤 {_t('Upload Progresses')}:\n" + upload_result_str
 
         status_update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        clash_download_speed = _format_speed(_get_cached_clash_download_speed())
+        software_download_speed = _format_speed(get_total_download_speed())
         new_msg_str = (
             f"`\n"
             f"🆔 {_t('Task ID')}: {node.task_id}\n"
             f"{_t('Updated at')}: {status_update_time}\n"
+            f"{_t('Clash download speed')}: {clash_download_speed}\n"
+            f"{_t('Software total download speed')}: {software_download_speed}\n"
             f"📥 {_t('Downloading')}: {format_byte(node.total_download_byte)}\n"
             f"├─ 📁 {_t('Total')}: {node.total_download_task}\n"
             f"├─ ✅ {_t('Success')}: {node.success_download_task}\n"

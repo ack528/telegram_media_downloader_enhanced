@@ -66,6 +66,21 @@ class ClashControllerTestCase(unittest.TestCase):
 
         request.assert_not_called()
 
+    def test_get_traffic_speed(self):
+        def fake_request(method, url, **kwargs):
+            self.assertEqual(method, "GET")
+            self.assertTrue(url.endswith("/traffic"))
+            self.assertEqual(kwargs["timeout"], 1.5)
+            return FakeResponse({"up": 1024, "down": 2048})
+
+        with mock.patch("module.clash_controller.requests.request", fake_request):
+            traffic = ClashController(
+                {"controller": "127.0.0.1:9097"}
+            ).get_traffic_speed()
+
+        self.assertEqual(traffic.up, 1024)
+        self.assertEqual(traffic.down, 2048)
+
 
 if __name__ == "__main__":
     unittest.main()
