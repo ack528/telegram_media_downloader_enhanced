@@ -59,6 +59,21 @@ class ResilienceTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(file_name, "file.mp4")
         self.assertEqual(calls, 2)
 
+    async def test_download_media_marks_fetch_failure_failed(self):
+        from media_downloader import download_media
+
+        node = TaskNode(chat_id=20)
+        message = SimpleNamespace(id=99, chat=SimpleNamespace(id=20))
+
+        async def fail_fetch(client, message):
+            raise TimeoutError("fetch timeout")
+
+        with mock.patch("media_downloader.fetch_message", fail_fetch):
+            status, file_name = await download_media(None, message, ["video"], {}, node)
+
+        self.assertEqual(status, DownloadStatus.FailedDownload)
+        self.assertIsNone(file_name)
+
 
 if __name__ == "__main__":
     unittest.main()

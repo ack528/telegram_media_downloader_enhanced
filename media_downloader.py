@@ -648,7 +648,17 @@ async def download_media(
     task_start_time: float = time.time()
     media_size = 0
     _media = None
-    message = await fetch_message(client, message)
+    try:
+        message = await fetch_message(client, message)
+    except Exception as e:
+        logger.warning(
+            "Message[{}]: fetch failed after retries, mark as failed and keep "
+            "for recovery: {}",
+            getattr(message, "id", "?"),
+            e,
+        )
+        return DownloadStatus.FailedDownload, None
+
     try:
         for _type in media_types:
             _media = getattr(message, _type, None)
@@ -847,13 +857,15 @@ async def worker(client: pyrogram.client.Client):
                     message = item[0]
                     node = item[1]
                     node.download_status[message.id] = DownloadStatus.FailedDownload
+                    app.set_download_id(
+                        node, message.id, DownloadStatus.FailedDownload
+                    )
+                    app.mark_download_finished(
+                        node, message.id, DownloadStatus.FailedDownload
+                    )
                     if node.bot:
                         await report_bot_download_status(
                             node.bot, node, DownloadStatus.FailedDownload
-                        )
-                    else:
-                        app.set_download_id(
-                            node, message.id, DownloadStatus.FailedDownload
                         )
                     app.update_config(True)
                 except Exception as update_error:
