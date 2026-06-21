@@ -263,8 +263,8 @@ class NativeDownloaderUI:
         enable_high_dpi_awareness()
         self.root = tk.Tk()
         self.root.title("Telegram Media Downloader")
-        self.root.geometry("1240x800")
-        self.root.minsize(1080, 700)
+        self.root.geometry("1280x860")
+        self.root.minsize(1120, 740)
         self._apply_window_icon()
         self._apply_scaling()
         self._build_style()
@@ -315,7 +315,16 @@ class NativeDownloaderUI:
         style.map("Primary.TButton", background=[("pressed", COLOR_PRIMARY_DARK), ("active", COLOR_PRIMARY_DARK), ("disabled", "#93a4c7")], foreground=[("disabled", "#eef2ff")], relief=[("pressed", "flat"), ("active", "flat")])
         style.configure("TEntry", fieldbackground=COLOR_INPUT_BG, foreground=COLOR_TEXT, bordercolor="#cbd5e1", lightcolor="#cbd5e1", darkcolor="#cbd5e1", insertcolor=COLOR_PRIMARY, padding=(6, 4))
         style.configure("TCombobox", fieldbackground=COLOR_INPUT_BG, foreground=COLOR_TEXT, bordercolor="#cbd5e1", arrowcolor=COLOR_PRIMARY, padding=(6, 4))
-        style.map("TCombobox", fieldbackground=[("readonly", COLOR_INPUT_BG)], selectbackground=[("readonly", "#f3f4f6")])
+        style.map(
+            "TCombobox",
+            fieldbackground=[("readonly", COLOR_INPUT_BG), ("focus", COLOR_INPUT_BG)],
+            foreground=[("readonly", COLOR_TEXT), ("focus", COLOR_TEXT), ("!disabled", COLOR_TEXT)],
+            selectbackground=[("readonly", "#e5e7eb"), ("focus", "#e5e7eb")],
+            selectforeground=[("readonly", COLOR_TEXT), ("focus", COLOR_TEXT)],
+        )
+        self.root.option_add("*TCombobox*Listbox.foreground", COLOR_TEXT)
+        self.root.option_add("*TCombobox*Listbox.selectForeground", "#ffffff")
+        self.root.option_add("*TCombobox*Listbox.selectBackground", COLOR_PRIMARY)
         style.configure("TNotebook", background=COLOR_BG, borderwidth=0, tabmargins=(0, 6, 0, 0))
         style.configure("TNotebook.Tab", padding=(16, 8), background="#f3f4f6", foreground=COLOR_TEXT, borderwidth=0, relief="flat", focuscolor="#f3f4f6")
         style.map(
@@ -583,10 +592,11 @@ class NativeDownloaderUI:
             ("history_fetch_retries", "历史读取重试"),
             ("log_level", "日志等级"),
         )
+        field_columns = 3
         for index, (key, title) in enumerate(fields):
-            row = index // 2
-            col = (index % 2) * 2
-            ttk.Label(grid, text=title).grid(row=row, column=col, sticky=tk.W, pady=5)
+            row = index // field_columns
+            col = (index % field_columns) * 2
+            ttk.Label(grid, text=title).grid(row=row, column=col, sticky=tk.W, pady=3)
             var = tk.StringVar()
             self.config_vars[key] = var
             widget: ttk.Widget
@@ -606,12 +616,12 @@ class NativeDownloaderUI:
                 widget = path_frame
             else:
                 widget = ttk.Entry(grid, textvariable=var)
-            widget.grid(row=row, column=col + 1, sticky=tk.EW, padx=(8, 18), pady=5)
-        grid.columnconfigure(1, weight=1)
-        grid.columnconfigure(3, weight=1)
+            widget.grid(row=row, column=col + 1, sticky=tk.EW, padx=(8, 16), pady=3)
+        for col in (1, 3, 5):
+            grid.columnconfigure(col, weight=1)
 
         clash = ttk.LabelFrame(content, text="Clash 自动切换", padding=(10, 8))
-        clash.pack(fill=tk.X, pady=(10, 0))
+        clash.pack(fill=tk.X, pady=(8, 0))
         clash_fields = (
             ("enabled", "启用"),
             ("controller", "外部控制地址"),
@@ -623,9 +633,9 @@ class NativeDownloaderUI:
             ("timeout_ms", "测速超时毫秒"),
         )
         for index, (key, title) in enumerate(clash_fields):
-            row = index // 2
-            col = (index % 2) * 2
-            ttk.Label(clash, text=title).grid(row=row, column=col, sticky=tk.W, pady=5)
+            row = index // field_columns
+            col = (index % field_columns) * 2
+            ttk.Label(clash, text=title).grid(row=row, column=col, sticky=tk.W, pady=3)
             var = tk.StringVar()
             self.clash_vars[key] = var
             if key == "enabled":
@@ -634,14 +644,14 @@ class NativeDownloaderUI:
                 )
             else:
                 widget = ttk.Entry(clash, textvariable=var, show="*" if key == "secret" else "")
-            widget.grid(row=row, column=col + 1, sticky=tk.EW, padx=(8, 18), pady=5)
-        clash.columnconfigure(1, weight=1)
-        clash.columnconfigure(3, weight=1)
+            widget.grid(row=row, column=col + 1, sticky=tk.EW, padx=(8, 16), pady=3)
+        for col in (1, 3, 5):
+            clash.columnconfigure(col, weight=1)
 
         ttk.Label(
             content,
             text="复杂的 chat / media_types / file_formats 仍建议直接编辑 config.yaml。",
-        ).pack(anchor=tk.W, pady=(10, 0))
+        ).pack(anchor=tk.W, pady=(8, 0))
 
         config_actions = ttk.Frame(tab)
         config_actions.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
