@@ -10,10 +10,12 @@ def _collect_tk_assets():
     dll_root = base / "DLLs"
 
     datas = []
-    if (tcl_root / "tcl8.6" / "init.tcl").exists():
-        for child in tcl_root.iterdir():
-            if child.is_dir():
-                datas.append((str(child), f"tcl/{child.name}"))
+    tcl_data = tcl_root / "tcl8.6"
+    tk_data = tcl_root / "tk8.6"
+    if (tcl_data / "init.tcl").exists():
+        datas.append((str(tcl_data), "_tcl_data"))
+    if (tk_data / "tk.tcl").exists():
+        datas.append((str(tk_data), "_tk_data"))
 
     binaries = []
     for dll_name in ("tcl86t.dll", "tk86t.dll"):
@@ -36,7 +38,7 @@ a = Analysis(
         ('./module/static/', './module/static'),
         *tk_datas,
     ],
-    hiddenimports=['tkinter', 'tkinter.ttk', '_tkinter'],
+    hiddenimports=['tkinter', '_tkinter'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=['pyinstaller_hooks/rthook_tkinter.py'],
