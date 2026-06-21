@@ -248,10 +248,10 @@ if (-not $SkipTests) {
         "tests.module.test_resilience",
         "tests.module.test_app_recovery",
         "tests.module.test_existing_file_recovery",
+        "tests.module.test_filter_gui_mode",
         "tests.module.test_history_timeout",
         "tests.module.test_native_ui",
         "tests.module.test_scan_prefetch",
-        "tests.module.test_web_api",
         "tests.utils.test_format"
     )
     Invoke-Checked ".\.venv\Scripts\python.exe" @(

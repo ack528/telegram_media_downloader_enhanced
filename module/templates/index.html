@@ -1,488 +1,312 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html>
 
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Telegram Media Downloader</title>
+  <link href="static/layui/css/layui.css" rel="stylesheet">
   <link href="static/css/index.css" rel="stylesheet">
+  <style>
+    body {
+      padding: 6px 16px;
+    }
+  </style>
 </head>
 
 <body>
-  <div class="app-shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">TDL</div>
-        <div>
-          <h1>下载控制台</h1>
-          <p>Telegram Media Downloader <span id="version">-</span></p>
-        </div>
+  <div class="layui-tab" lay-filter="telegram_media_downloader">
+    <div class="header-title layui-tab-brief">
+      <ul class="layui-tab-title">
+        <li class="layui-this">Downloading</li>
+        <li>Downloaded</li>
+        <!-- <li>Config</li> -->
+      </ul>
+      <div class="stop-btn" id="download_state" data-value="{{ download_state }}" onclick="download_state_change(this)"> {{ download_state }} </div>
+    </div>
+    <div class="layui-tab-content" style="padding: 0;">
+      <div class="layui-tab-item layui-show">
+        <table class="layui-hide" id="download_list" lay-filter="download_list"></table>
       </div>
-
-      <nav class="nav">
-        <button class="nav-item active" data-panel="overview">总览</button>
-        <button class="nav-item" data-panel="downloads">文件下载</button>
-        <button class="nav-item" data-panel="bot">机器人</button>
-        <button class="nav-item" data-panel="config">配置</button>
-      </nav>
-
-      <div class="sidebar-card">
-        <span class="label">当前状态</span>
-        <strong id="stateText">连接中</strong>
-        <button id="toggleDownload" class="primary-btn" type="button">暂停下载</button>
+      <div class="layui-tab-item">
+        <table class="layui-hide" id="already_download_list" lay-filter="already_download_list"></table>
       </div>
-    </aside>
-
-    <main class="workspace">
-      <header class="topbar">
-        <div>
-          <p class="eyebrow">Realtime Monitor</p>
-          <h2 id="pageTitle">总览</h2>
-        </div>
-        <div class="top-actions">
-          <span id="lastUpdated">等待刷新</span>
-          <button id="refreshNow" class="ghost-btn" type="button">刷新</button>
-        </div>
-      </header>
-
-      <section class="panel active" id="panel-overview">
-        <div class="metric-grid">
-          <article class="metric">
-            <span>总下载速度</span>
-            <strong id="metricSpeed">0 B/s</strong>
-          </article>
-          <article class="metric">
-            <span>活跃文件</span>
-            <strong id="metricActive">0</strong>
-          </article>
-          <article class="metric">
-            <span>运行任务</span>
-            <strong id="metricTasks">0</strong>
-          </article>
-          <article class="metric">
-            <span>已完成记录</span>
-            <strong id="metricCompleted">0</strong>
-          </article>
-        </div>
-
-        <div class="content-grid">
-          <section class="section-block">
-            <div class="section-title">
-              <h3>正在下载</h3>
-              <span id="activeDownloadCount">0 个文件</span>
-            </div>
-            <div id="downloadCards" class="download-list empty">暂无正在下载的文件</div>
-          </section>
-
-          <section class="section-block">
-            <div class="section-title">
-              <h3>任务状态</h3>
-              <span id="taskCount">0 个任务</span>
-            </div>
-            <div id="taskList" class="task-list empty">暂无任务</div>
-          </section>
-        </div>
-      </section>
-
-      <section class="panel" id="panel-downloads">
-        <div class="section-block full">
-          <div class="section-title">
-            <h3>文件下载详情</h3>
-            <span>实时显示进度、速度、保存位置</span>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>任务</th>
-                  <th>消息 ID</th>
-                  <th>文件</th>
-                  <th>进度</th>
-                  <th>速度</th>
-                  <th>保存路径</th>
-                </tr>
-              </thead>
-              <tbody id="downloadTable">
-                <tr><td colspan="6" class="empty-cell">暂无文件</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel" id="panel-bot">
-        <div class="content-grid">
-          <section class="section-block">
-            <div class="section-title">
-              <h3>机器人交互</h3>
-              <span id="botSummary">未启用</span>
-            </div>
-            <div id="botMessages" class="message-list empty">暂无机器人消息</div>
-          </section>
-
-          <section class="section-block">
-            <div class="section-title">
-              <h3>机器人任务</h3>
-              <span>命令触发与恢复任务</span>
-            </div>
-            <div id="botTasks" class="task-list empty">暂无机器人任务</div>
-          </section>
-        </div>
-      </section>
-
-      <section class="panel" id="panel-config">
-        <form id="configForm" class="config-layout">
-          <section class="section-block">
-            <div class="section-title">
-              <h3>基础配置</h3>
-              <span id="configStatus">读取中</span>
-            </div>
-            <div class="form-grid">
-              <label>语言
-                <select name="language">
-                  <option value="ZH">中文</option>
-                  <option value="EN">English</option>
-                </select>
-              </label>
-              <label>保存路径
-                <input name="save_path" type="text">
-              </label>
-              <label>最大下载任务
-                <input name="max_download_task" type="number" min="1">
-              </label>
-              <label>并发传输数
-                <input name="max_concurrent_transmissions" type="number" min="1">
-              </label>
-              <label>扫描预取上限
-                <input name="scan_prefetch_limit" type="number" min="0">
-              </label>
-              <label>下载卡住超时秒数
-                <input name="download_stall_timeout" type="number" min="1">
-              </label>
-              <label>历史读取超时秒数
-                <input name="history_fetch_timeout" type="number" min="1">
-              </label>
-              <label>历史读取重试次数
-                <input name="history_fetch_retries" type="number" min="1">
-              </label>
-            </div>
-            <div class="switch-row">
-              <label><input name="hide_file_name" type="checkbox"> 隐藏文件名</label>
-              <label><input name="enable_download_txt" type="checkbox"> 下载文本消息</label>
-              <label><input name="drop_no_audio_video" type="checkbox"> 丢弃无音轨视频</label>
-            </div>
-          </section>
-
-          <section class="section-block">
-            <div class="section-title">
-              <h3>Clash 自动切换</h3>
-              <span>规则模式 + 美国节点</span>
-            </div>
-            <div class="form-grid">
-              <label>启用
-                <select name="clash.enabled">
-                  <option value="true">启用</option>
-                  <option value="false">关闭</option>
-                </select>
-              </label>
-              <label>外部控制地址
-                <input name="clash.controller" type="text">
-              </label>
-              <label>API 密钥
-                <input name="clash.secret" type="password" autocomplete="off">
-              </label>
-              <label>代理组 selector
-                <input name="clash.selector" type="text" placeholder="留空自动查找">
-              </label>
-              <label>低速阈值 KB/s
-                <input name="clash.low_speed_kb" type="number" min="1">
-              </label>
-              <label>低速持续秒数
-                <input name="clash.low_speed_seconds" type="number" min="1">
-              </label>
-              <label>切换冷却秒数
-                <input name="clash.switch_cooldown_seconds" type="number" min="0">
-              </label>
-              <label>测速超时毫秒
-                <input name="clash.timeout_ms" type="number" min="100">
-              </label>
-            </div>
-          </section>
-
-          <section class="section-block full">
-            <div class="section-title">
-              <h3>会话任务与格式</h3>
-              <span>JSON 编辑，高级用户使用</span>
-            </div>
-            <div class="json-grid">
-              <label>chat 配置
-                <textarea name="chat_json" spellcheck="false"></textarea>
-              </label>
-              <label>media_types
-                <textarea name="media_types_json" spellcheck="false"></textarea>
-              </label>
-              <label>file_formats
-                <textarea name="file_formats_json" spellcheck="false"></textarea>
-              </label>
-            </div>
-            <div class="form-actions">
-              <button class="primary-btn" type="submit">保存配置</button>
-              <button class="ghost-btn" id="reloadConfig" type="button">重新读取</button>
-            </div>
-          </section>
-        </form>
-      </section>
-    </main>
+      <!-- <div class="layui-tab-item">
+        <form class="layui-form" action="">
+        under development
+      </form>
+      </div> -->
+    </div>
   </div>
 
+  <div class="layui-footer">
+    <div class="layui-row layui-col-space1">
+      <div class="layui-col-md2">
+        <p>Telegram Media Downloader V <b id="app_version" style="color: #009688;">undefined</b>
+      </div>
+      <div class="layui-col-md7">
+      </div>
+      <div class="layui-col-md3">
+        <div style="padding: 5px; float: right;">
+          <!-- <i class="layui-icon layui-icon-upload-circle" style="font-size: 16px; color: #1E9FFF; font-weight: 700;">
+            <i id="upload_speed_title" style="color: black;"> 0.00 B/s </i>
+          </i> -->
+
+          <i class="layui-icon layui-icon-download-circle"
+            style="font-size: 16px; color: #5FB878; font-weight: 700; margin-left: 15px;">
+            <i id="download_speed_title" style="color: black;"> 0.00 B/s </i>
+          </i>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="static/layui/layui.js"></script>
   <script>
-    const state = {
-      panel: 'overview',
-      dashboard: null,
-      config: null
-    };
 
-    const $ = (selector) => document.querySelector(selector);
-    const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+    layui.use(['table', 'element'], function () {
+      var table = layui.table;
+      var element = layui.element;
+      var layer = layui.layer;
+      var $ = layui.$;
+      var already_download_list_data = new Array()
+      var download_list_table_data = new Array()
 
-    function escapeHtml(value) {
-      return String(value ?? '').replace(/[&<>"']/g, (char) => ({
-        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
-      }[char]));
-    }
-
-    function fmtTime(ts) {
-      if (!ts) return '-';
-      return new Date(ts * 1000).toLocaleString();
-    }
-
-    async function fetchJson(url, options) {
-      const response = await fetch(url, options);
-      if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-      return response.json();
-    }
-
-    async function refreshDashboard() {
-      try {
-        const data = await fetchJson('api/dashboard');
-        state.dashboard = data;
-        renderDashboard(data);
-      } catch (error) {
-        $('#lastUpdated').textContent = `刷新失败：${error.message}`;
-      }
-    }
-
-    function renderDashboard(data) {
-      $('#version').textContent = `v${data.version}`;
-      $('#stateText').textContent = data.download_state === 'downloading' ? '下载中' : '已暂停';
-      $('#toggleDownload').textContent = data.download_state === 'downloading' ? '暂停下载' : '继续下载';
-      $('#toggleDownload').dataset.value = data.download_state === 'downloading' ? 'pause' : 'continue';
-      $('#metricSpeed').textContent = data.summary.speed;
-      $('#metricActive').textContent = data.summary.active_count;
-      $('#metricTasks').textContent = data.summary.task_count;
-      $('#metricCompleted').textContent = data.summary.completed_count;
-      $('#activeDownloadCount').textContent = `${data.downloads.length} 个文件`;
-      $('#taskCount').textContent = `${data.tasks.length} 个任务`;
-      $('#botSummary').textContent = data.bot.enabled ? `${data.bot.task_count} 个机器人任务` : '未启用';
-      $('#lastUpdated').textContent = `更新于 ${new Date().toLocaleTimeString()}`;
-      renderDownloadCards(data.downloads);
-      renderDownloadTable(data.downloads.concat(data.completed));
-      renderTasks('#taskList', data.tasks);
-      renderTasks('#botTasks', data.tasks.filter((task) => task.source === 'bot'));
-      renderBotMessages(data.bot.last_messages);
-    }
-
-    function renderDownloadCards(downloads) {
-      const box = $('#downloadCards');
-      if (!downloads.length) {
-        box.className = 'download-list empty';
-        box.textContent = '暂无正在下载的文件';
-        return;
-      }
-      box.className = 'download-list';
-      box.innerHTML = downloads.map((item) => `
-        <article class="download-card">
-          <div class="download-head">
-            <strong>${escapeHtml(item.filename || `Message ${item.id}`)}</strong>
-            <span>${escapeHtml(item.download_speed)}</span>
-          </div>
-          <div class="progress"><i style="width:${Math.min(item.download_progress, 100)}%"></i></div>
-          <div class="download-meta">
-            <span>任务 ${escapeHtml(item.task_id || '-')} / 消息 ${escapeHtml(item.id)}</span>
-            <span>${escapeHtml(item.down_size)} / ${escapeHtml(item.total_size)}</span>
-          </div>
-        </article>
-      `).join('');
-    }
-
-    function renderDownloadTable(items) {
-      const body = $('#downloadTable');
-      if (!items.length) {
-        body.innerHTML = '<tr><td colspan="6" class="empty-cell">暂无文件</td></tr>';
-        return;
-      }
-      body.innerHTML = items.map((item) => `
-        <tr>
-          <td>${escapeHtml(item.task_id || '-')}</td>
-          <td>${escapeHtml(item.id)}</td>
-          <td>
-            <strong>${escapeHtml(item.filename || '-')}</strong>
-            <small>${escapeHtml(item.chat)}</small>
-          </td>
-          <td>
-            <div class="table-progress"><i style="width:${Math.min(item.download_progress, 100)}%"></i></div>
-            <small>${escapeHtml(item.download_progress)}%</small>
-          </td>
-          <td>${escapeHtml(item.download_speed)}</td>
-          <td class="path-cell">${escapeHtml(item.save_path)}</td>
-        </tr>
-      `).join('');
-    }
-
-    function renderTasks(selector, tasks) {
-      const box = $(selector);
-      if (!tasks.length) {
-        box.className = 'task-list empty';
-        box.textContent = '暂无任务';
-        return;
-      }
-      box.className = 'task-list';
-      box.innerHTML = tasks.map((task) => {
-        const total = Number(task.total || task.total_task || 0);
-        const finished = Number(task.finished || task.finish_task || 0);
-        const progress = total ? Math.min(Math.round(finished / total * 100), 100) : 0;
-        return `
-          <article class="task-card">
-            <div>
-              <strong>任务 ${escapeHtml(task.task_id || '-')}</strong>
-              <span>${escapeHtml(task.source || 'config')} / chat ${escapeHtml(task.chat_id || '-')}</span>
-            </div>
-            <div class="task-stats">
-              <span>完成 ${finished}/${total}</span>
-              <span>失败 ${escapeHtml(task.failed || 0)}</span>
-              <span>待恢复 ${escapeHtml(task.pending_retry || 0)}</span>
-            </div>
-            <div class="progress subtle"><i style="width:${progress}%"></i></div>
-          </article>
-        `;
-      }).join('');
-    }
-
-    function renderBotMessages(messages) {
-      const box = $('#botMessages');
-      if (!messages.length) {
-        box.className = 'message-list empty';
-        box.textContent = '暂无机器人消息';
-        return;
-      }
-      box.className = 'message-list';
-      box.innerHTML = messages.map((item) => `
-        <article class="message-card">
-          <div>任务 ${escapeHtml(item.task_id || '-')} / chat ${escapeHtml(item.chat_id || '-')}</div>
-          <pre>${escapeHtml(item.message)}</pre>
-        </article>
-      `).join('');
-    }
-
-    async function loadConfig() {
-      const config = await fetchJson('api/config');
-      state.config = config;
-      fillConfig(config);
-      $('#configStatus').textContent = '已读取';
-    }
-
-    function fillConfig(config) {
-      const form = $('#configForm');
-      [
-        'language', 'save_path', 'max_download_task', 'max_concurrent_transmissions',
-        'scan_prefetch_limit', 'download_stall_timeout', 'history_fetch_timeout',
-        'history_fetch_retries'
-      ].forEach((name) => {
-        if (form.elements[name]) form.elements[name].value = config[name] ?? '';
+      $.ajax({
+        url: "get_app_version"
+        , type: "get"
+        , async: false
+        , dataType: "text"
+        , success: function (result) {
+          $("#app_version").html(result)
+        }
       });
-      ['hide_file_name', 'enable_download_txt', 'drop_no_audio_video'].forEach((name) => {
-        form.elements[name].checked = Boolean(config[name]);
+
+      download_state_change = function(e) {
+        $.ajax({
+        url: "set_download_state?state=" + e.dataset.value
+        , type: "post"
+        , async: false
+        , dataType: "text"
+        , success: function (result) {
+          $("#download_state").html(result)
+          e.dataset.value=result
+        }
       });
-      Object.entries(config.clash || {}).forEach(([key, value]) => {
-        const field = form.elements[`clash.${key}`];
-        if (field) field.value = String(value);
-      });
-      form.elements.chat_json.value = JSON.stringify(config.chat || [], null, 2);
-      form.elements.media_types_json.value = JSON.stringify(config.media_types || [], null, 2);
-      form.elements.file_formats_json.value = JSON.stringify(config.file_formats || {}, null, 2);
     }
 
-    function readConfigForm() {
-      const form = $('#configForm');
-      const data = {};
-      [
-        'language', 'save_path', 'max_download_task', 'max_concurrent_transmissions',
-        'scan_prefetch_limit', 'download_stall_timeout', 'history_fetch_timeout',
-        'history_fetch_retries'
-      ].forEach((name) => data[name] = form.elements[name].value);
-      ['hide_file_name', 'enable_download_txt', 'drop_no_audio_video'].forEach((name) => {
-        data[name] = form.elements[name].checked;
+      tableIns = table.render({
+        elem: '#download_list'
+        , data: download_list_table_data
+        , title: 'download_list'
+        , height: 'full-160'
+        , limit: 10000
+        , cols: [[
+          { field: 'chat', title: 'chat', width: 100 },
+          { field: 'id', title: 'id', width: 100 }
+          , { field: 'filename', title: 'file name', align: 'center' }
+          , { field: 'total_size', title: 'total byte', align: 'center' }
+          , {
+            field: 'download_progress', title: 'download progress', align: 'center', templet: function (d) {
+              var ys = '';
+              if (30 < d.download_progress && d.download_progress < 100) {
+                ys = 'layui-bg-blue'
+              } else if (0 < d.download_progress && d.download_progress <= 30) {
+                ys = 'layui-bg-red'
+              }
+              else if (100 == d.download_progress) {
+                ys = 'layui-bg-green'
+              }
+              return '<div class="layui-progress layui-progress-big" lay-showpercent="true"  lay-filter="down-' + d.id + '"><div class="layui-progress-bar ' + ys + '" lay-percent="' + d.download_progress + '%"></div></div>'
+            }
+          }
+          , { field: 'download_speed', title: 'download speed', align: 'center' }
+        ]]
+        , done: function (res, currentCount) {
+          element.render()
+        }
       });
-      data.clash = {};
-      ['enabled', 'controller', 'secret', 'selector', 'low_speed_kb', 'low_speed_seconds', 'switch_cooldown_seconds', 'timeout_ms'].forEach((key) => {
-        const value = form.elements[`clash.${key}`].value;
-        data.clash[key] = key === 'enabled' ? value === 'true' : value;
-      });
-      data.chat = JSON.parse(form.elements.chat_json.value || '[]');
-      data.media_types = JSON.parse(form.elements.media_types_json.value || '[]');
-      data.file_formats = JSON.parse(form.elements.file_formats_json.value || '{}');
-      return data;
-    }
 
-    async function saveConfig(event) {
-      event.preventDefault();
-      $('#configStatus').textContent = '保存中';
-      try {
-        const payload = readConfigForm();
-        const result = await fetchJson('api/config', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+      table.render({
+        elem: '#already_download_list'
+        , data: already_download_list_data
+        , title: 'already_download_list'
+        , height: 'full-160'
+        , limit: 10000
+        , cols: [[
+
+          { field: 'id', title: 'id', width: 100 }
+          , { field: 'filename', title: 'file name', align: 'center' }
+          , { field: 'total_size', title: 'total size', align: 'center' }
+          , { field: 'save_path', title: 'save path', align: 'center' }
+        ]], done: function (res, currentCount) {
+          element.render()
+        }
+      });
+
+      function update_download_list() {
+        $.ajax({
+          url: "get_download_list?already_down=false"
+          , type: "get"
+          , async: false
+          , dataType: "json"
+          , success: function (result) {
+            // first remove finish and update
+            for (var j = 0, len2 = download_list_table_data.length; j < len2; j++) {
+              find_iter = false
+              for (var i = 0, len = result.length; i < len; i++) {
+                if (result[i].chat == download_list_table_data[j].chat && result[i].id == download_list_table_data[j].id) {
+                  download_list_table_data[j].download_progress = result[i].download_progress
+                  var progress = download_list_table_data[j].download_progress
+                  element.progress('down-' + result[i].chat + '-' + result[i].id, progress + '%');
+
+                  var download_speed_obj = $('div[lay-filter="down_speed-' + result[i].chat + '-' + result[i].id + '"]')
+                  download_speed_obj.html(result[i].download_speed)
+
+                  if (progress == 100) {
+                    var device_obj = $('div[lay-filter="down-' + result[i].chat + '-' + result[i].id + '"] div')
+                    device_obj.removeClass("layui-bg-blue")
+                    device_obj.addClass("layui-bg-green")
+                    obj = $('div[lay-id="download_list"]  tr[data-index="' + result[i].chat + '-' + result[i].id + '"]')
+                    obj.remove()
+                  }
+                  find_iter = true
+                  break
+                }
+              }
+
+            }
+
+            // new task
+            for (var i = 0, len = result.length; i < len; i++) {
+              find_iter = false
+              for (var j = 0, len2 = download_list_table_data.length; j < len2; j++) {
+                if (result[i].chat == download_list_table_data[j].chat && result[i].id == download_list_table_data[j].id) {
+                  find_iter = true
+                  break
+                }
+              }
+
+              if (find_iter || result[i].download_progress == 100) {
+                continue;
+              }
+              // not found
+              obj = $('div[lay-id="download_list"]  .layui-table-body .layui-table tbody')
+              var tr = ' <tr data-index="' + result[i].chat + '-' + result[i].id + '">' +
+                '<td data-field="id" data-key="1-0-0" class=""><div class="layui-table-cell laytable-cell-1-0-0">' + result[i].chat + '</div></td>' +
+                '<td data-field="id" data-key="1-0-1" class=""><div class="layui-table-cell laytable-cell-1-0-1">' + result[i].id + '</div></td>' +
+                '<td data-field="filename" data-key="1-0-2" class=""><div class="layui-table-cell laytable-cell-1-0-2" align="center">' + result[i].filename + '</div></td>' +
+                '<td data-field="total_size" data-key="1-0-3" class=""><div class="layui-table-cell laytable-cell-1-0-3" align="center">' + result[i].total_size + '</div></td>' +
+                '<td data-field="download_progress" data-key="1-0-4" data-content="' + result[i].download_progress + '" class=""><div class="layui-table-cell laytable-cell-1-0-4" align="center"><div class="layui-progress layui-progress-big" lay-showpercent="true" lay-filter="down-' + result[i].chat + '-' + result[i].id + '"><div class="layui-progress-bar layui-bg-blue" lay-percent="' + result[i].download_progress + '%" style="width: ' + result[i].download_progress + '%;"><span class="layui-progress-text">' + result[i].download_progress + '%</span></div></div></div></td>' +
+                '<td data-field="download_speed" data-key="1-0-5" class=""><div class="layui-table-cell laytable-cell-1-0-5" align="center"lay-filter="down_speed-' + result[i].chat + '-' + result[i].id + '">' + result[i].download_speed + '</div></td>' +
+                "  </tr>";
+              obj.append(tr)
+              download_list_table_data.push(result[i])
+
+              if (download_list_table_data.length == 1) {
+                $(".layui-none").remove()
+              }
+
+              element.render()
+
+            }
+
+            element.render()
+          }
         });
-        state.config = result.config;
-        fillConfig(result.config);
-        $('#configStatus').textContent = result.restart_required.length
-          ? `已保存，重启后生效：${result.restart_required.join(', ')}`
-          : '已保存';
-      } catch (error) {
-        $('#configStatus').textContent = `保存失败：${error.message}`;
-      }
-    }
 
-    async function toggleDownload() {
-      const nextState = $('#toggleDownload').dataset.value || 'pause';
-      const response = await fetch(`set_download_state?state=${encodeURIComponent(nextState)}`, { method: 'POST' });
-      const result = await response.text();
-      $('#toggleDownload').dataset.value = result;
-      await refreshDashboard();
-    }
+      };
 
-    function switchPanel(panel) {
-      state.panel = panel;
-      $$('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.panel === panel));
-      $$('.panel').forEach((item) => item.classList.toggle('active', item.id === `panel-${panel}`));
-      $('#pageTitle').textContent = {
-        overview: '总览',
-        downloads: '文件下载',
-        bot: '机器人',
-        config: '配置'
-      }[panel];
-    }
 
-    $$('.nav-item').forEach((item) => item.addEventListener('click', () => switchPanel(item.dataset.panel)));
-    $('#refreshNow').addEventListener('click', refreshDashboard);
-    $('#toggleDownload').addEventListener('click', toggleDownload);
-    $('#configForm').addEventListener('submit', saveConfig);
-    $('#reloadConfig').addEventListener('click', loadConfig);
+      function update_download_status() {
+        $.ajax({
+          url: "get_download_status"
+          , type: "get"
+          , async: false
+          , dataType: "json"
+          , success: function (result) {
+            $("#download_speed_title").html(result.download_speed)
+          }
+        });
 
-    refreshDashboard();
-    loadConfig().catch((error) => $('#configStatus').textContent = `读取失败：${error.message}`);
-    setInterval(refreshDashboard, 1000);
+      };
+
+
+      var update_download_list_int = self.setInterval(update_download_list, 1000);
+      var update_download_status_int = self.setInterval(update_download_status, 1000);
+      var update_already_download_list_int = 0;
+
+
+      function update_already_download_list() {
+        $.ajax({
+          url: "get_download_list?already_down=true"
+          , type: "get"
+          , async: false
+          , dataType: "json"
+          , success: function (result) {
+            // if not exist then add
+            for (var i = 0, len = result.length; i < len; i++) {
+              if (result[i].download_progress != 100) {
+                continue
+              }
+
+              find_iter = false
+
+              for (var j = 0, len2 = already_download_list_data.length; j < len2; j++) {
+                if (result[i].chat == download_list_table_data[i].chat && result[i].id == already_download_list_data[j].id) {
+                  find_iter = true
+                  break
+                }
+              }
+
+              if (find_iter) {
+                continue;
+              }
+              // not found
+              obj = $('div[lay-id="already_download_list"]  .layui-table-body .layui-table tbody')
+              var tr = ' <tr data-index="' + result[i].chat + '-' + result[i].id + '">' +
+                '<td data-field="id" data-key="2-0-0" class=""><div class="layui-table-cell laytable-cell-2-0-0">' + result[i].id + '</div></td>' +
+                '<td data-field="filename" data-key="2-0-1" class=""><div class="layui-table-cell laytable-cell-2-0-1" align="center">' + result[i].filename + '</div></td>' +
+                '<td data-field="total_size" data-key="2-0-2" class=""><div class="layui-table-cell laytable-cell-2-0-2" align="center">' + result[i].total_size + '</div></td>' +
+                '<td data-field="save_path" data-key="2-0-3" class=""><div class="layui-table-cell laytable-cell-2-0-3" align="center">' + result[i].save_path + '</div></td>' +
+                "  </tr>";
+              obj.append(tr)
+
+              already_download_list_data.push(result[i])
+
+              if (already_download_list_data.length == 1) {
+                $(".layui-none").remove()
+              }
+              element.render()
+            }
+
+            element.render()
+          }
+        });
+
+      };
+
+      element.on('tab(telegram_media_downloader)', function (data) {
+        if (data.index != 0) {
+          clearInterval(update_download_list_int);
+        }
+
+        if (data.index == 0) {
+          update_download_list_int = self.setInterval(update_download_list, 1000);
+        }
+
+        if (data.index != 1) {
+          clearInterval(update_already_download_list_int);
+        }
+
+        if (data.index == 1) {
+          update_already_download_list_int = self.setInterval(update_already_download_list, 1000);
+        }
+
+      });
+
+    });
   </script>
 </body>
 
