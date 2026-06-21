@@ -27,19 +27,20 @@ from utils.format import format_byte
 
 
 POLL_INTERVAL_MS = 1000
-COLOR_BG = "#f3f6fb"
+COLOR_BG = "#f8fbff"
 COLOR_PANEL = "#ffffff"
-COLOR_BORDER = "#dfe8f5"
-COLOR_TEXT = "#071a3a"
-COLOR_MUTED = "#52698a"
-COLOR_PRIMARY = "#2f66e8"
-COLOR_PRIMARY_DARK = "#1f4fc4"
-COLOR_PROGRESS = "#2f66e8"
-COLOR_SOFT_BLUE = "#e5edf8"
-COLOR_SOFT_BLUE_ACTIVE = "#d8e4f4"
+COLOR_PANEL_ALT = "#f1f8ff"
+COLOR_BORDER = "#d6e4f0"
+COLOR_TEXT = "#0f172a"
+COLOR_MUTED = "#64748b"
+COLOR_PRIMARY = "#0ea5e9"
+COLOR_PRIMARY_DARK = "#0284c7"
+COLOR_PROGRESS = "#06b6d4"
+COLOR_SOFT_BLUE = "#e0f2fe"
+COLOR_SOFT_BLUE_ACTIVE = "#bae6fd"
 COLOR_INPUT_BG = "#ffffff"
-COLOR_LOG_BG = "#101827"
-COLOR_LOG_FG = "#eaf1ff"
+COLOR_LOG_BG = "#0f172a"
+COLOR_LOG_FG = "#e2e8f0"
 
 
 def resource_path(relative_path: str) -> str:
@@ -255,8 +256,8 @@ class NativeDownloaderUI:
         enable_high_dpi_awareness()
         self.root = tk.Tk()
         self.root.title("Telegram Media Downloader")
-        self.root.geometry("1180x760")
-        self.root.minsize(980, 620)
+        self.root.geometry("1240x800")
+        self.root.minsize(1080, 700)
         self._apply_window_icon()
         self._apply_scaling()
         self._build_style()
@@ -288,37 +289,61 @@ class NativeDownloaderUI:
         style.configure(".", font=("Microsoft YaHei UI", 10), background=COLOR_BG, foreground=COLOR_TEXT)
         style.configure("TFrame", background=COLOR_BG)
         style.configure("Panel.TFrame", background=COLOR_PANEL)
+        style.configure("PanelAlt.TFrame", background=COLOR_PANEL_ALT)
         style.configure("Header.TFrame", background=COLOR_BG)
-        style.configure("Title.TLabel", font=("Microsoft YaHei UI", 20, "bold"), background=COLOR_BG, foreground=COLOR_TEXT)
+        style.configure("Title.TLabel", font=("Microsoft YaHei UI", 18, "bold"), background=COLOR_BG, foreground=COLOR_TEXT)
         style.configure("Subtitle.TLabel", font=("Microsoft YaHei UI", 10), background=COLOR_BG, foreground=COLOR_MUTED)
-        style.configure("Metric.TLabel", font=("Microsoft YaHei UI", 18, "bold"), background=COLOR_PANEL, foreground=COLOR_PRIMARY_DARK)
+        style.configure("Metric.TLabel", font=("Microsoft YaHei UI", 16, "bold"), background=COLOR_PANEL, foreground=COLOR_PRIMARY_DARK)
         style.configure("MetricName.TLabel", font=("Microsoft YaHei UI", 9), background=COLOR_PANEL, foreground=COLOR_MUTED)
-        style.configure("Card.TLabelframe", background=COLOR_PANEL, bordercolor=COLOR_BORDER, relief="solid")
+        style.configure("Card.TLabelframe", background=COLOR_PANEL, bordercolor=COLOR_BORDER, relief="flat")
         style.configure("Card.TLabelframe.Label", background=COLOR_PANEL, foreground=COLOR_MUTED)
         style.configure("Download.TFrame", background=COLOR_PANEL)
         style.configure("DownloadTitle.TLabel", font=("Microsoft YaHei UI", 10, "bold"), background=COLOR_PANEL, foreground=COLOR_TEXT)
         style.configure("DownloadMeta.TLabel", font=("Microsoft YaHei UI", 9), background=COLOR_PANEL, foreground=COLOR_MUTED)
         style.configure("TLabel", background=COLOR_BG, foreground=COLOR_TEXT)
-        style.configure("TButton", padding=(14, 7), background=COLOR_SOFT_BLUE, foreground=COLOR_TEXT, bordercolor=COLOR_SOFT_BLUE)
-        style.map("TButton", background=[("active", COLOR_SOFT_BLUE_ACTIVE), ("disabled", "#edf2f8")], foreground=[("disabled", "#93a4ba")])
-        style.configure("Primary.TButton", padding=(14, 8), background=COLOR_PRIMARY, foreground="#ffffff", bordercolor=COLOR_PRIMARY)
-        style.map("Primary.TButton", background=[("active", COLOR_PRIMARY_DARK), ("disabled", "#aabbea")], foreground=[("disabled", "#eef3ff")])
-        style.configure("TEntry", fieldbackground=COLOR_INPUT_BG, foreground=COLOR_TEXT, bordercolor="#c8d4e4", lightcolor="#c8d4e4", darkcolor="#c8d4e4", insertcolor=COLOR_PRIMARY)
-        style.configure("TCombobox", fieldbackground=COLOR_INPUT_BG, foreground=COLOR_TEXT, bordercolor="#c8d4e4", arrowcolor=COLOR_PRIMARY)
+        style.configure("TButton", padding=(14, 6), background=COLOR_SOFT_BLUE, foreground=COLOR_TEXT, bordercolor=COLOR_SOFT_BLUE, relief="flat")
+        style.map("TButton", background=[("pressed", COLOR_SOFT_BLUE_ACTIVE), ("active", COLOR_SOFT_BLUE_ACTIVE), ("disabled", "#edf2f8")], foreground=[("disabled", "#94a3b8")], relief=[("pressed", "flat"), ("active", "flat")])
+        style.configure("Primary.TButton", padding=(16, 7), background=COLOR_PRIMARY, foreground="#ffffff", bordercolor=COLOR_PRIMARY, relief="flat")
+        style.map("Primary.TButton", background=[("pressed", COLOR_PRIMARY_DARK), ("active", COLOR_PRIMARY_DARK), ("disabled", "#a7d8f2")], foreground=[("disabled", "#eef8ff")], relief=[("pressed", "flat"), ("active", "flat")])
+        style.configure("TEntry", fieldbackground=COLOR_INPUT_BG, foreground=COLOR_TEXT, bordercolor="#cbd5e1", lightcolor="#cbd5e1", darkcolor="#cbd5e1", insertcolor=COLOR_PRIMARY, padding=(6, 4))
+        style.configure("TCombobox", fieldbackground=COLOR_INPUT_BG, foreground=COLOR_TEXT, bordercolor="#cbd5e1", arrowcolor=COLOR_PRIMARY, padding=(6, 4))
         style.map("TCombobox", fieldbackground=[("readonly", COLOR_INPUT_BG)], selectbackground=[("readonly", COLOR_SOFT_BLUE)])
-        style.configure("TNotebook", background=COLOR_BG, borderwidth=0, tabmargins=(0, 8, 0, 0))
-        style.configure("TNotebook.Tab", padding=(18, 9), background=COLOR_SOFT_BLUE, foreground=COLOR_TEXT, borderwidth=0)
+        style.configure("TNotebook", background=COLOR_BG, borderwidth=0, tabmargins=(0, 6, 0, 0))
+        style.configure("TNotebook.Tab", padding=(16, 8), background=COLOR_SOFT_BLUE, foreground=COLOR_TEXT, borderwidth=0, relief="flat", focuscolor=COLOR_SOFT_BLUE)
         style.map(
             "TNotebook.Tab",
-            background=[("selected", COLOR_PANEL), ("active", COLOR_SOFT_BLUE_ACTIVE)],
+            background=[("selected", COLOR_PANEL), ("active", COLOR_SOFT_BLUE_ACTIVE), ("pressed", COLOR_SOFT_BLUE_ACTIVE)],
             foreground=[("selected", COLOR_PRIMARY_DARK), ("active", COLOR_TEXT)],
+            padding=[("selected", (16, 8)), ("active", (16, 8)), ("pressed", (16, 8))],
+            relief=[("selected", "flat"), ("pressed", "flat"), ("active", "flat")],
         )
-        style.configure("Blue.Horizontal.TProgressbar", troughcolor="#dfe5ee", background=COLOR_PROGRESS, bordercolor="#dfe5ee", lightcolor=COLOR_PROGRESS, darkcolor=COLOR_PROGRESS)
-        style.configure("Treeview", rowheight=30, background=COLOR_PANEL, fieldbackground=COLOR_PANEL, foreground=COLOR_TEXT)
+        style.layout(
+            "TNotebook.Tab",
+            [
+                (
+                    "Notebook.tab",
+                    {
+                        "sticky": "nswe",
+                        "children": [
+                            (
+                                "Notebook.padding",
+                                {
+                                    "side": "top",
+                                    "sticky": "nswe",
+                                    "children": [("Notebook.label", {"side": "top", "sticky": ""})],
+                                },
+                            )
+                        ],
+                    },
+                )
+            ],
+        )
+        style.configure("Blue.Horizontal.TProgressbar", troughcolor="#e2e8f0", background=COLOR_PROGRESS, bordercolor="#e2e8f0", lightcolor=COLOR_PROGRESS, darkcolor=COLOR_PROGRESS)
+        style.configure("Treeview", rowheight=28, background=COLOR_PANEL, fieldbackground=COLOR_PANEL, foreground=COLOR_TEXT, bordercolor=COLOR_BORDER, lightcolor=COLOR_BORDER, darkcolor=COLOR_BORDER)
         style.configure("Treeview.Heading", background=COLOR_SOFT_BLUE, foreground=COLOR_TEXT)
 
     def _build_ui(self):
-        shell = ttk.Frame(self.root, padding=16)
+        shell = ttk.Frame(self.root, padding=(14, 12))
         shell.pack(fill=tk.BOTH, expand=True)
 
         header = ttk.Frame(shell, style="Header.TFrame")
@@ -326,12 +351,12 @@ class NativeDownloaderUI:
         title_box = ttk.Frame(header)
         title_box.pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Label(title_box, text="Telegram Media Downloader", style="Title.TLabel").pack(anchor=tk.W)
-        ttk.Label(title_box, text="白蓝轻量控制台 · 实时任务 / 下载 / 配置", style="Subtitle.TLabel").pack(anchor=tk.W)
+        ttk.Label(title_box, text="清爽控制台 · 实时任务 / 下载 / 配置", style="Subtitle.TLabel").pack(anchor=tk.W, pady=(2, 0))
         self.state_label = ttk.Label(header, text="准备启动", style="Subtitle.TLabel")
         self.state_label.pack(side=tk.RIGHT)
 
         self.notebook = ttk.Notebook(shell)
-        self.notebook.pack(fill=tk.BOTH, expand=True, pady=(14, 0))
+        self.notebook.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
 
         self._build_overview_tab()
         self._build_download_tab()
@@ -340,21 +365,21 @@ class NativeDownloaderUI:
         self._build_log_tab()
 
         footer = ttk.Frame(shell)
-        footer.pack(fill=tk.X, pady=(12, 0))
+        footer.pack(fill=tk.X, pady=(8, 0))
         self.pause_button = ttk.Button(
             footer,
             text="暂停下载",
             style="Primary.TButton",
             command=self.toggle_download_state,
         )
-        self.pause_button.pack(side=tk.LEFT)
-        ttk.Button(footer, text="保存配置", command=self.save_config).pack(
+        self.pause_button.pack(side=tk.LEFT, ipadx=10)
+        ttk.Button(footer, text="保存配置", command=self.save_config, width=12).pack(
             side=tk.LEFT, padx=(8, 0)
         )
-        ttk.Button(footer, text="退出", command=self.close).pack(side=tk.RIGHT)
+        ttk.Button(footer, text="退出", command=self.close, width=12).pack(side=tk.RIGHT)
 
     def _build_overview_tab(self):
-        tab = ttk.Frame(self.notebook, padding=12)
+        tab = ttk.Frame(self.notebook, padding=(10, 10))
         self.notebook.add(tab, text="总览")
         metrics = ttk.Frame(tab)
         metrics.pack(fill=tk.X)
@@ -374,12 +399,12 @@ class NativeDownloaderUI:
             ("机器人", "bot"),
             ("Clash", "clash"),
         ):
-            card = ttk.LabelFrame(metrics, text=title, padding=12, style="Card.TLabelframe")
+            card = ttk.LabelFrame(metrics, text=title, padding=(10, 8), style="Card.TLabelframe")
             card.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
             ttk.Label(card, textvariable=self.metric_vars[key], style="Metric.TLabel").pack(anchor=tk.W)
 
-        detail_panel = ttk.Frame(tab, style="Panel.TFrame", padding=12)
-        detail_panel.pack(fill=tk.X, pady=(14, 0))
+        detail_panel = ttk.Frame(tab, style="Panel.TFrame", padding=(10, 8))
+        detail_panel.pack(fill=tk.X, pady=(10, 0))
         self.overview_detail_vars = {
             "state": tk.StringVar(value="状态：准备启动"),
             "save_path": tk.StringVar(value="保存目录：-"),
@@ -388,24 +413,24 @@ class NativeDownloaderUI:
         for variable in self.overview_detail_vars.values():
             ttk.Label(detail_panel, textvariable=variable, style="DownloadMeta.TLabel").pack(anchor=tk.W, pady=2)
 
-        self.startup_text = tk.Text(tab, height=13, wrap=tk.WORD)
-        self.startup_text.pack(fill=tk.BOTH, expand=True, pady=(14, 0))
+        self.startup_text = tk.Text(tab, height=10, wrap=tk.WORD, font=("Microsoft YaHei UI", 9))
+        self.startup_text.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
         self.startup_text.configure(bg=COLOR_PANEL, fg=COLOR_TEXT, insertbackground=COLOR_PRIMARY, relief=tk.FLAT, padx=10, pady=8)
         self.startup_text.insert(tk.END, "启动准备中：等待读取 config.yaml...\n")
         self.startup_text.configure(state=tk.DISABLED)
 
     def _build_download_tab(self):
-        tab = ttk.Frame(self.notebook, padding=12)
+        tab = ttk.Frame(self.notebook, padding=(10, 10))
         self.notebook.add(tab, text="文件下载")
         header = ttk.Frame(tab)
-        header.pack(fill=tk.X, pady=(0, 8))
+        header.pack(fill=tk.X, pady=(0, 6))
         ttk.Label(header, text="文件下载进度", style="DownloadTitle.TLabel").pack(side=tk.LEFT)
         self.download_summary_var = tk.StringVar(value="暂无下载任务")
         ttk.Label(header, textvariable=self.download_summary_var, style="DownloadMeta.TLabel").pack(side=tk.RIGHT)
 
         self.download_canvas = tk.Canvas(
             tab,
-            bg=COLOR_BG,
+            bg=COLOR_PANEL_ALT,
             highlightthickness=0,
             borderwidth=0,
         )
@@ -434,7 +459,7 @@ class NativeDownloaderUI:
         self.download_empty_label.pack(fill=tk.X, pady=16)
 
     def _build_bot_tab(self):
-        tab = ttk.Frame(self.notebook, padding=12)
+        tab = ttk.Frame(self.notebook, padding=(10, 10))
         self.notebook.add(tab, text="机器人/任务")
         columns = (
             "task",
@@ -446,7 +471,7 @@ class NativeDownloaderUI:
             "pending",
             "running",
         )
-        self.task_tree = ttk.Treeview(tab, columns=columns, show="headings", height=9)
+        self.task_tree = ttk.Treeview(tab, columns=columns, show="headings", height=6)
         headings = {
             "task": "任务",
             "source": "来源",
@@ -457,24 +482,53 @@ class NativeDownloaderUI:
             "pending": "待恢复",
             "running": "运行中",
         }
+        column_widths = {
+            "task": 80,
+            "source": 90,
+            "chat": 190,
+            "progress": 130,
+            "success": 80,
+            "failed": 80,
+            "pending": 95,
+            "running": 85,
+        }
         for key in columns:
             self.task_tree.heading(key, text=headings[key])
-            self.task_tree.column(key, width=120, anchor=tk.W)
+            self.task_tree.column(
+                key,
+                width=column_widths[key],
+                minwidth=60,
+                anchor=tk.W,
+                stretch=key in {"chat", "progress"},
+            )
         self.task_tree.pack(fill=tk.X)
 
         task_actions = ttk.Frame(tab)
-        task_actions.pack(fill=tk.X, pady=(8, 0))
-        ttk.Button(task_actions, text="删除选中任务", command=self.delete_selected_task).pack(
+        task_actions.pack(fill=tk.X, pady=(6, 0))
+        ttk.Button(task_actions, text="删除选中任务", command=self.delete_selected_task, width=14).pack(
             side=tk.LEFT
         )
         self.task_tree.bind("<Delete>", lambda _event: self.delete_selected_task())
 
-        ttk.Label(tab, text="机器人最近状态消息").pack(anchor=tk.W, pady=(14, 4))
-        self.bot_message_text = tk.Text(tab, height=14, wrap=tk.WORD)
+        ttk.Label(tab, text="机器人最近状态消息").pack(anchor=tk.W, pady=(10, 4))
+        self.bot_message_text = tk.Text(
+            tab,
+            height=9,
+            wrap=tk.WORD,
+            font=("Microsoft YaHei UI", 9),
+        )
+        self.bot_message_text.configure(
+            bg=COLOR_PANEL,
+            fg=COLOR_TEXT,
+            insertbackground=COLOR_PRIMARY,
+            relief=tk.FLAT,
+            padx=10,
+            pady=8,
+        )
         self.bot_message_text.pack(fill=tk.BOTH, expand=True)
 
     def _build_config_tab(self):
-        tab = ttk.Frame(self.notebook, padding=12)
+        tab = ttk.Frame(self.notebook, padding=(10, 10))
         self.notebook.add(tab, text="配置")
         grid = ttk.Frame(tab)
         grid.pack(fill=tk.X)
@@ -493,7 +547,7 @@ class NativeDownloaderUI:
         for index, (key, title) in enumerate(fields):
             row = index // 2
             col = (index % 2) * 2
-            ttk.Label(grid, text=title).grid(row=row, column=col, sticky=tk.W, pady=6)
+            ttk.Label(grid, text=title).grid(row=row, column=col, sticky=tk.W, pady=5)
             var = tk.StringVar()
             self.config_vars[key] = var
             widget: ttk.Widget
@@ -513,12 +567,12 @@ class NativeDownloaderUI:
                 widget = path_frame
             else:
                 widget = ttk.Entry(grid, textvariable=var)
-            widget.grid(row=row, column=col + 1, sticky=tk.EW, padx=(8, 20), pady=6)
+            widget.grid(row=row, column=col + 1, sticky=tk.EW, padx=(8, 18), pady=5)
         grid.columnconfigure(1, weight=1)
         grid.columnconfigure(3, weight=1)
 
-        clash = ttk.LabelFrame(tab, text="Clash 自动切换", padding=12)
-        clash.pack(fill=tk.X, pady=(14, 0))
+        clash = ttk.LabelFrame(tab, text="Clash 自动切换", padding=(10, 8))
+        clash.pack(fill=tk.X, pady=(10, 0))
         clash_fields = (
             ("enabled", "启用"),
             ("controller", "外部控制地址"),
@@ -532,7 +586,7 @@ class NativeDownloaderUI:
         for index, (key, title) in enumerate(clash_fields):
             row = index // 2
             col = (index % 2) * 2
-            ttk.Label(clash, text=title).grid(row=row, column=col, sticky=tk.W, pady=6)
+            ttk.Label(clash, text=title).grid(row=row, column=col, sticky=tk.W, pady=5)
             var = tk.StringVar()
             self.clash_vars[key] = var
             if key == "enabled":
@@ -541,19 +595,19 @@ class NativeDownloaderUI:
                 )
             else:
                 widget = ttk.Entry(clash, textvariable=var, show="*" if key == "secret" else "")
-            widget.grid(row=row, column=col + 1, sticky=tk.EW, padx=(8, 20), pady=6)
+            widget.grid(row=row, column=col + 1, sticky=tk.EW, padx=(8, 18), pady=5)
         clash.columnconfigure(1, weight=1)
         clash.columnconfigure(3, weight=1)
 
         ttk.Label(
             tab,
             text="复杂的 chat / media_types / file_formats 仍建议直接编辑 config.yaml。",
-        ).pack(anchor=tk.W, pady=(14, 0))
+        ).pack(anchor=tk.W, pady=(10, 0))
 
     def _build_log_tab(self):
-        tab = ttk.Frame(self.notebook, padding=12)
+        tab = ttk.Frame(self.notebook, padding=(10, 10))
         self.notebook.add(tab, text="运行日志")
-        self.log_text = tk.Text(tab, wrap=tk.WORD)
+        self.log_text = tk.Text(tab, wrap=tk.WORD, font=("Microsoft YaHei UI", 9))
         self.log_text.configure(bg=COLOR_LOG_BG, fg=COLOR_LOG_FG, insertbackground=COLOR_PROGRESS, relief=tk.FLAT, padx=10, pady=8)
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
