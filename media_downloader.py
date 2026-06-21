@@ -70,12 +70,25 @@ DOWNLOAD_RETRY_COUNT = 5
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 LOW_SPEED_MONITOR_INTERVAL = 5
 DOWNLOAD_HEARTBEAT_INTERVAL = 60
+_clash_switch_event = asyncio.Event()
+_clash_switch_reason: Optional[str] = None
 
 logging.getLogger("pyrogram.session.session").addFilter(LogFilter())
 logging.getLogger("pyrogram.client").addFilter(LogFilter())
 logging.getLogger("pyrogram").addFilter(LogFilter())
 
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
+
+
+def request_clash_switch(reason: str):
+    """Ask the Clash monitor to switch nodes because network requests are failing."""
+    global _clash_switch_reason
+    if not app.clash_config.get("enabled", True):
+        return
+
+    _clash_switch_reason = reason
+    _clash_switch_event.set()
+    logger.warning("Network issue detected; scheduled Clash node switch: {}", reason)
 
 
 def _check_download_finish(media_size: int, download_path: str, ui_file_name: str):
@@ -651,6 +664,7 @@ async def download_media(
     try:
         message = await fetch_message(client, message)
     except Exception as e:
+        request_clash_switch(f"message {getattr(message, 'id', '?')} fetch failed")
         logger.warning(
             "Message[{}]: fetch failed after retries, mark as failed and keep "
             "for recovery: {}",
@@ -758,6 +772,7 @@ async def download_media(
         try:
             message = await fetch_message(client, message)
         except Exception as e:
+            request_clash_switch(f"message {message.id} refetch failed")
             logger.warning(
                 "Message[{}]: refetch failed before retry {}/{}: {}",
                 message.id,
@@ -956,6 +971,10 @@ async def download_chat_task(
                         DownloadStatus.SkipDownload,
                     )
     except Exception as exc:
+        request_clash_switch(
+            f"chat history failed: chat_id={node.chat_id}, "
+            f"last_read_message_id={chat_download_config.last_read_message_id}"
+        )
         chat_download_config.need_check = True
         node.is_running = False
         logger.exception(
@@ -1088,7 +1107,8 @@ async def _switch_clash_node():
 
 
 async def monitor_low_download_speed():
-    """Switch Clash node when active downloads stay too slow."""
+    """Switch Clash node when downloads are slow or Telegram requests fail."""
+    global _clash_switch_reason
     config = app.clash_config
     if not config.get("enabled", True):
         return
@@ -1102,30 +1122,39 @@ async def monitor_low_download_speed():
     while app.is_running:
         await asyncio.sleep(LOW_SPEED_MONITOR_INTERVAL)
 
-        if get_active_download_count() <= 0:
-            low_speed_since = None
-            continue
-
         now = time.time()
-        speed = get_total_download_speed()
-        if speed >= low_speed_bytes:
+        switch_reason = None
+
+        if _clash_switch_event.is_set():
+            switch_reason = _clash_switch_reason or "Telegram network request failed"
+        elif get_active_download_count() <= 0:
             low_speed_since = None
             continue
+        else:
+            speed = get_total_download_speed()
+            if speed >= low_speed_bytes:
+                low_speed_since = None
+                continue
 
-        if low_speed_since is None:
-            low_speed_since = now
-            continue
+            if low_speed_since is None:
+                low_speed_since = now
+                continue
 
-        if now - low_speed_since < low_speed_seconds:
-            continue
+            if now - low_speed_since < low_speed_seconds:
+                continue
+
+            switch_reason = (
+                f"download speed stayed below {int(low_speed_bytes / 1024)} KB/s "
+                f"for {low_speed_seconds} seconds"
+            )
+
         if now - last_switch_time < cooldown_seconds:
             continue
 
-        logger.warning(
-            "Download speed stayed below {} KB/s for {} seconds; testing Clash nodes",
-            int(low_speed_bytes / 1024),
-            low_speed_seconds,
-        )
+        _clash_switch_event.clear()
+        _clash_switch_reason = None
+
+        logger.warning("{}; testing Clash nodes", switch_reason)
 
         try:
             result = await _switch_clash_node()

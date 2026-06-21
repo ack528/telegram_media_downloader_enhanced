@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -73,6 +74,43 @@ class ResilienceTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(status, DownloadStatus.FailedDownload)
         self.assertIsNone(file_name)
+
+    async def test_network_failure_request_switches_clash_without_active_download(self):
+        import media_downloader
+
+        old_is_running = media_downloader.app.is_running
+        old_clash_config = media_downloader.app.clash_config
+        media_downloader.app.is_running = True
+        media_downloader.app.clash_config = {
+            "enabled": True,
+            "switch_cooldown_seconds": 0,
+        }
+        media_downloader._clash_switch_event.clear()
+        media_downloader._clash_switch_reason = None
+
+        switch_calls = 0
+
+        async def fake_switch():
+            nonlocal switch_calls
+            switch_calls += 1
+            media_downloader.app.is_running = False
+            return SimpleNamespace(selector="Proxy", node="US Node", delay=10)
+
+        try:
+            with mock.patch("media_downloader.LOW_SPEED_MONITOR_INTERVAL", 0.01):
+                with mock.patch("media_downloader._switch_clash_node", fake_switch):
+                    task = asyncio.create_task(
+                        media_downloader.monitor_low_download_speed()
+                    )
+                    media_downloader.request_clash_switch("fetch failed")
+                    await asyncio.wait_for(task, timeout=1)
+        finally:
+            media_downloader._clash_switch_event.clear()
+            media_downloader._clash_switch_reason = None
+            media_downloader.app.clash_config = old_clash_config
+            media_downloader.app.is_running = old_is_running
+
+        self.assertEqual(switch_calls, 1)
 
 
 if __name__ == "__main__":
