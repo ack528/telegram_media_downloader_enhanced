@@ -2,6 +2,7 @@
 
 import os
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -60,8 +61,23 @@ class AppTestCase(unittest.TestCase):
             app.app_data["chat"][0]["ids_to_retry"],
         )
 
+    def test_prepare_runtime_paths_does_not_create_downloads_folder(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app = Application("config.yaml", "data.yaml")
+            app.save_path = os.path.join(temp_dir, "downloads")
+            app.temp_save_path = os.path.join(temp_dir, "temp")
+            app.log_file_path = os.path.join(temp_dir, "log")
+            app.session_file_path = os.path.join(temp_dir, "sessions")
+
+            app.prepare_runtime_paths()
+
+            self.assertFalse(os.path.exists(app.save_path))
+            self.assertTrue(os.path.isdir(app.temp_save_path))
+            self.assertTrue(os.path.isdir(app.log_file_path))
+            self.assertTrue(os.path.isdir(app.session_file_path))
+
     @mock.patch("__main__.__builtins__.open", new_callable=mock.mock_open)
-    @mock.patch("module.app.yaml", autospec=True)
+    @mock.patch("module.app._yaml")
     def test_update_config(self, mock_yaml, mock_open):
         app = Application("", "")
         app.config_file = "config_test.yaml"

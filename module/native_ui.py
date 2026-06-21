@@ -196,7 +196,9 @@ def apply_config_changes(app: Application, values: dict[str, Any]) -> list[str]:
 
     for key in ("save_path", "log_level"):
         if key in values:
-            value = str(values.get(key) or "")
+            value = str(values.get(key) or "").strip()
+            if not value:
+                continue
             setattr(app, key, value)
             app.config[key] = value
 
@@ -210,6 +212,8 @@ def apply_config_changes(app: Application, values: dict[str, Any]) -> list[str]:
     }
     for key, minimum in int_fields.items():
         if key in values:
+            if str(values.get(key) or "").strip() == "":
+                continue
             value = get_int(key, getattr(app, key), minimum)
             setattr(app, key, value)
             app.config[key] = value
@@ -219,6 +223,8 @@ def apply_config_changes(app: Application, values: dict[str, Any]) -> list[str]:
     clash_values = values.get("clash")
     if isinstance(clash_values, dict):
         for key, value in clash_values.items():
+            if key != "enabled" and str(value or "").strip() == "":
+                continue
             if key in (
                 "low_speed_kb",
                 "low_speed_seconds",
@@ -248,6 +254,7 @@ class NativeDownloaderUI:
         self.worker_thread: threading.Thread | None = None
         self.started = False
         self.config_loaded = False
+        self.config_vars_loaded = False
         self.config_vars: dict[str, tk.Variable] = {}
         self.clash_vars: dict[str, tk.Variable] = {}
         self.task_row_keys: dict[str, Any] = {}
@@ -345,10 +352,14 @@ class NativeDownloaderUI:
 
     def _build_ui(self):
         shell = ttk.Frame(self.root, padding=(14, 12))
-        shell.pack(fill=tk.BOTH, expand=True)
+        shell.grid(row=0, column=0, sticky="nsew")
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+        shell.columnconfigure(0, weight=1)
+        shell.rowconfigure(1, weight=1)
 
         header = ttk.Frame(shell, style="Header.TFrame")
-        header.pack(fill=tk.X)
+        header.grid(row=0, column=0, sticky="ew")
         title_box = ttk.Frame(header)
         title_box.pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Label(title_box, text="Telegram Media Downloader", style="Title.TLabel").pack(anchor=tk.W)
@@ -357,7 +368,7 @@ class NativeDownloaderUI:
         self.state_label.pack(side=tk.RIGHT)
 
         self.notebook = ttk.Notebook(shell)
-        self.notebook.pack(fill=tk.BOTH, expand=True, pady=(8, 0))
+        self.notebook.grid(row=1, column=0, sticky="nsew", pady=(8, 0))
 
         self._build_overview_tab()
         self._build_download_tab()
@@ -366,7 +377,7 @@ class NativeDownloaderUI:
         self._build_log_tab()
 
         footer = ttk.Frame(shell)
-        footer.pack(fill=tk.X, pady=(8, 0))
+        footer.grid(row=2, column=0, sticky="ew", pady=(8, 0))
         self.pause_button = ttk.Button(
             footer,
             text="暂停下载",
@@ -460,6 +471,8 @@ class NativeDownloaderUI:
     def _build_bot_tab(self):
         tab = ttk.Frame(self.notebook, padding=(10, 10))
         self.notebook.add(tab, text="机器人/任务")
+        tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(3, weight=1)
         columns = (
             "task",
             "source",
@@ -500,18 +513,22 @@ class NativeDownloaderUI:
                 anchor=tk.W,
                 stretch=key in {"chat", "progress"},
             )
-        self.task_tree.pack(fill=tk.X)
+        self.task_tree.grid(row=0, column=0, sticky="ew")
 
         task_actions = ttk.Frame(tab)
-        task_actions.pack(fill=tk.X, pady=(6, 0))
+        task_actions.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         ttk.Button(task_actions, text="删除选中任务", command=self.delete_selected_task, width=14).pack(
             side=tk.LEFT
         )
         self.task_tree.bind("<Delete>", lambda _event: self.delete_selected_task())
 
-        ttk.Label(tab, text="机器人最近状态消息").pack(anchor=tk.W, pady=(10, 4))
+        ttk.Label(tab, text="机器人最近状态消息").grid(row=2, column=0, sticky="w", pady=(10, 4))
+        message_frame = ttk.Frame(tab)
+        message_frame.grid(row=3, column=0, sticky="nsew")
+        message_frame.columnconfigure(0, weight=1)
+        message_frame.rowconfigure(0, weight=1)
         self.bot_message_text = tk.Text(
-            tab,
+            message_frame,
             height=9,
             wrap=tk.WORD,
             font=("Microsoft YaHei UI", 9),
@@ -524,12 +541,35 @@ class NativeDownloaderUI:
             padx=10,
             pady=8,
         )
-        self.bot_message_text.pack(fill=tk.BOTH, expand=True)
+        bot_scrollbar = ttk.Scrollbar(message_frame, orient=tk.VERTICAL, command=self.bot_message_text.yview)
+        self.bot_message_text.configure(yscrollcommand=bot_scrollbar.set)
+        self.bot_message_text.grid(row=0, column=0, sticky="nsew")
+        bot_scrollbar.grid(row=0, column=1, sticky="ns")
 
     def _build_config_tab(self):
         tab = ttk.Frame(self.notebook, padding=(10, 10))
         self.notebook.add(tab, text="配置")
-        grid = ttk.Frame(tab)
+        tab.columnconfigure(0, weight=1)
+        tab.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(tab, bg=COLOR_BG, highlightthickness=0, borderwidth=0)
+        scrollbar = ttk.Scrollbar(tab, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        content = ttk.Frame(canvas)
+        content_window = canvas.create_window((0, 0), window=content, anchor="nw")
+        content.bind(
+            "<Configure>",
+            lambda _event: canvas.configure(scrollregion=canvas.bbox("all")),
+        )
+        canvas.bind(
+            "<Configure>",
+            lambda event: canvas.itemconfigure(content_window, width=event.width),
+        )
+
+        grid = ttk.Frame(content)
         grid.pack(fill=tk.X)
 
         fields = (
@@ -570,7 +610,7 @@ class NativeDownloaderUI:
         grid.columnconfigure(1, weight=1)
         grid.columnconfigure(3, weight=1)
 
-        clash = ttk.LabelFrame(tab, text="Clash 自动切换", padding=(10, 8))
+        clash = ttk.LabelFrame(content, text="Clash 自动切换", padding=(10, 8))
         clash.pack(fill=tk.X, pady=(10, 0))
         clash_fields = (
             ("enabled", "启用"),
@@ -599,12 +639,12 @@ class NativeDownloaderUI:
         clash.columnconfigure(3, weight=1)
 
         ttk.Label(
-            tab,
+            content,
             text="复杂的 chat / media_types / file_formats 仍建议直接编辑 config.yaml。",
         ).pack(anchor=tk.W, pady=(10, 0))
 
         config_actions = ttk.Frame(tab)
-        config_actions.pack(fill=tk.X, pady=(12, 0))
+        config_actions.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(10, 0))
         ttk.Button(
             config_actions,
             text="保存配置",
@@ -664,6 +704,7 @@ class NativeDownloaderUI:
                 if isinstance(value, bool):
                     value = str(value).lower()
                 var.set(str(value))
+            self.config_vars_loaded = True
 
         self.root.after(0, load)
 
@@ -850,7 +891,7 @@ class NativeDownloaderUI:
         self._refresh_metrics()
 
     def save_config(self):
-        if not self.config_loaded or not self.app.config:
+        if not self.config_loaded or not self.config_vars_loaded or not self.app.config:
             messagebox.showwarning(
                 "配置尚未加载",
                 "请等待启动准备完成并成功读取 config.yaml 后再保存配置。",

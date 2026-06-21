@@ -92,6 +92,41 @@ class NativeUiTestCase(unittest.TestCase):
         self.assertIn("bot_token", saved)
         self.assertIn("media_types", saved)
 
+    def test_apply_config_changes_ignores_empty_form_values(self):
+        self.app.save_path = os.path.join(self.temp_dir.name, "existing")
+        self.app.max_download_task = 5
+        self.app.log_level = "INFO"
+        self.app.clash_config["controller"] = "http://127.0.0.1:9097"
+        self.app.clash_config["low_speed_kb"] = 100
+        self.app.config.update(
+            {
+                "save_path": self.app.save_path,
+                "max_download_task": self.app.max_download_task,
+                "log_level": self.app.log_level,
+                "clash": dict(self.app.clash_config),
+            }
+        )
+
+        apply_config_changes(
+            self.app,
+            {
+                "save_path": "",
+                "max_download_task": "",
+                "log_level": "",
+                "clash": {
+                    "controller": "",
+                    "low_speed_kb": "",
+                    "enabled": True,
+                },
+            },
+        )
+
+        self.assertEqual(self.app.save_path, os.path.join(self.temp_dir.name, "existing"))
+        self.assertEqual(self.app.max_download_task, 5)
+        self.assertEqual(self.app.log_level, "INFO")
+        self.assertEqual(self.app.clash_config["controller"], "http://127.0.0.1:9097")
+        self.assertEqual(self.app.clash_config["low_speed_kb"], 100)
+
     def test_bind_core_event_loop_in_worker_thread(self):
         class Core:
             app = self.app

@@ -461,7 +461,6 @@ class Application:
     def prepare_runtime_paths(self):
         """Create runtime folders used by config, logs, temp files, and sessions."""
         for directory in (
-            self.save_path,
             self.temp_save_path,
             self.log_file_path,
             self.session_file_path,
