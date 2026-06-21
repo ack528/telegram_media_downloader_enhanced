@@ -33,6 +33,7 @@ Set-Location $repoRoot
 
 if (-not $SkipTests) {
     $testModules = @(
+        "tests.module.test_download_stat",
         "tests.module.test_native_ui",
         "tests.module.test_app",
         "tests.module.test_resilience"
@@ -42,6 +43,7 @@ if (-not $SkipTests) {
         $testModules = @(
             "tests.module.test_bot_status",
             "tests.module.test_clash_controller",
+            "tests.module.test_download_stat",
             "tests.module.test_resilience",
             "tests.module.test_app",
             "tests.module.test_app_recovery",

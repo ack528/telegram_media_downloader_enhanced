@@ -812,6 +812,8 @@ async def download_media(
                 DOWNLOAD_RETRY_COUNT,
                 e,
             )
+            if isinstance(e, (TimeoutError, OSError, IOError)) or "stalled" in str(e).lower():
+                request_clash_switch(f"message {message.id} download stalled")
 
         if retry + 1 >= DOWNLOAD_RETRY_COUNT:
             break

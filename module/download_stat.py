@@ -20,20 +20,42 @@ _total_download_speed: int = 0
 _total_download_size: int = 0
 _last_download_time: float = time.time()
 _download_state: DownloadState = DownloadState.Downloading
+STALE_SPEED_SECONDS = 3.0
+
+
+def _refresh_stale_speeds(now: float | None = None):
+    """Set cached speeds to zero when progress callbacks stop arriving."""
+    global _total_download_speed
+
+    now = time.time() if now is None else now
+    if now - _last_download_time >= STALE_SPEED_SECONDS:
+        _total_download_speed = 0
+
+    for messages in _download_result.values():
+        for value in messages.values():
+            total_size = int(value.get("total_size") or 0)
+            down_byte = int(value.get("down_byte") or 0)
+            if total_size > 0 and down_byte >= total_size:
+                continue
+            if now - float(value.get("end_time") or 0) >= STALE_SPEED_SECONDS:
+                value["download_speed"] = 0
 
 
 def get_download_result() -> dict:
     """get global download result"""
+    _refresh_stale_speeds()
     return _download_result
 
 
 def get_total_download_speed() -> int:
     """get total download speed"""
+    _refresh_stale_speeds()
     return _total_download_speed
 
 
 def get_active_download_count() -> int:
     """Return active download item count."""
+    _refresh_stale_speeds()
     active_count = 0
     for messages in _download_result.values():
         for value in messages.values():
@@ -52,6 +74,21 @@ def set_download_state(state: DownloadState):
     """set download state"""
     global _download_state
     _download_state = state
+
+
+def reset_download_statistics():
+    """Reset download statistics for tests and fresh runtime state."""
+    global _download_result
+    global _total_download_speed
+    global _total_download_size
+    global _last_download_time
+    global _download_state
+
+    _download_result = {}
+    _total_download_speed = 0
+    _total_download_size = 0
+    _last_download_time = time.time()
+    _download_state = DownloadState.Downloading
 
 
 async def update_download_status(

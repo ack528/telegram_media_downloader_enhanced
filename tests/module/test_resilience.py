@@ -1,9 +1,11 @@
 import asyncio
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
 from module.app import DownloadStatus, TaskNode
+import module.download_stat as download_stat
 from module.pyrogram_extension import (
     fetch_message,
     record_download_status,
@@ -26,6 +28,7 @@ class FetchClient:
 class ResilienceTestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         reset_download_cache()
+        download_stat.reset_download_statistics()
 
     async def test_fetch_message_retries_connection_loss(self):
         client = FetchClient(failures=2)
@@ -134,6 +137,42 @@ class ResilienceTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(media_downloader._clash_switch_event.is_set())
         self.assertIsNone(media_downloader._clash_switch_reason)
+
+    async def test_stale_speed_does_not_block_clash_switch_request(self):
+        import media_downloader
+
+        old_clash_config = media_downloader.app.clash_config
+        media_downloader.app.clash_config = {
+            "enabled": True,
+            "low_speed_kb": 100,
+        }
+        media_downloader._clash_switch_event.clear()
+        media_downloader._clash_switch_reason = None
+        download_stat._download_result = {
+            "chat": {
+                1: {
+                    "down_byte": 10,
+                    "total_size": 100,
+                    "download_speed": 4 * 1024 * 1024,
+                    "end_time": time.time() - download_stat.STALE_SPEED_SECONDS - 1,
+                }
+            }
+        }
+        download_stat._total_download_speed = 4 * 1024 * 1024
+        download_stat._last_download_time = (
+            time.time() - download_stat.STALE_SPEED_SECONDS - 1
+        )
+
+        try:
+            media_downloader.request_clash_switch("message 1849 download stalled")
+        finally:
+            media_downloader.app.clash_config = old_clash_config
+
+        self.assertTrue(media_downloader._clash_switch_event.is_set())
+        self.assertEqual(
+            media_downloader._clash_switch_reason,
+            "message 1849 download stalled",
+        )
 
 
 if __name__ == "__main__":
