@@ -42,20 +42,29 @@ from utils.log import LogFilter, disable_quick_edit_mode
 from utils.meta import print_meta
 from utils.meta_data import MetaData
 
-logger.remove()
-logger.add(
-    sys.stderr,
-    level="INFO",
-    format="<green>{time:HH:mm:ss}</green> | <level>{message}</level>",
-    filter=lambda record: record["extra"].get("console")
-    or record["level"].no >= logger.level("WARNING").no,
-)
-logging.basicConfig(
-    level=logging.WARNING,
-    format="%(message)s",
-    datefmt="[%X]",
-    handlers=[RichHandler()],
-)
+
+def _configure_startup_logging():
+    """Configure logging safely for console and GUI/no-console builds."""
+    logger.remove()
+    sink = sys.stderr if sys.stderr is not None else (lambda _: None)
+    logger.add(
+        sink,
+        level="INFO",
+        format="<green>{time:HH:mm:ss}</green> | <level>{message}</level>",
+        filter=lambda record: record["extra"].get("console")
+        or record["level"].no >= logger.level("WARNING").no,
+    )
+
+    handler = RichHandler() if sys.stderr is not None else logging.NullHandler()
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[handler],
+    )
+
+
+_configure_startup_logging()
 
 disable_quick_edit_mode()
 
