@@ -3,12 +3,14 @@ import asyncio
 import tempfile
 import threading
 import unittest
+from unittest import mock
 
 from module.app import Application
 from module.app import ChatDownloadConfig
 from module.native_ui import (
     apply_config_changes,
     bind_core_event_loop,
+    collect_download_rows,
     collect_dashboard_snapshot,
     delete_task,
 )
@@ -40,6 +42,27 @@ class NativeUiTestCase(unittest.TestCase):
         self.assertIn("speed", snapshot)
         self.assertIn("active_count", snapshot)
         self.assertEqual(snapshot["task_count"], 0)
+
+    def test_collect_download_rows_includes_progress_value(self):
+        with mock.patch(
+            "module.native_ui.get_download_result",
+            return_value={
+                "chat": {
+                    10: {
+                        "task_id": 1,
+                        "total_size": 100,
+                        "down_byte": 40,
+                        "download_speed": 2048,
+                        "file_name": r"C:\downloads\file.mp4",
+                    }
+                }
+            },
+        ):
+            rows = collect_download_rows()
+
+        self.assertEqual(rows[0]["key"], "chat:10")
+        self.assertEqual(rows[0]["percent_value"], 40)
+        self.assertEqual(rows[0]["progress"], "40.0%")
 
     def test_apply_config_changes_persists_common_values(self):
         restart_required = apply_config_changes(

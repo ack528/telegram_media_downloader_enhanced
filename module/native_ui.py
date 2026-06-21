@@ -27,6 +27,14 @@ from utils.format import format_byte
 
 
 POLL_INTERVAL_MS = 1000
+COLOR_BG = "#f7fbff"
+COLOR_PANEL = "#ffffff"
+COLOR_BORDER = "#d7eaff"
+COLOR_TEXT = "#123047"
+COLOR_MUTED = "#5f7385"
+COLOR_PRIMARY = "#2f8cff"
+COLOR_PRIMARY_DARK = "#1769d1"
+COLOR_PROGRESS = "#63b3ff"
 
 
 def resource_path(relative_path: str) -> str:
@@ -66,12 +74,15 @@ def collect_download_rows() -> list[dict[str, Any]]:
             total_size = int(value.get("total_size") or 0)
             down_byte = int(value.get("down_byte") or 0)
             is_done = total_size > 0 and down_byte >= total_size
+            percent_value = min(down_byte / total_size * 100, 100) if total_size else 0
             rows.append(
                 {
+                    "key": f"{chat_id}:{message_id}",
                     "task_id": value.get("task_id", ""),
                     "chat_id": str(chat_id),
                     "message_id": str(message_id),
                     "file_name": os.path.basename(str(value.get("file_name", ""))),
+                    "percent_value": percent_value,
                     "progress": format_percent(down_byte, total_size),
                     "downloaded": format_byte(down_byte),
                     "total": format_byte(total_size),
@@ -135,6 +146,7 @@ def collect_dashboard_snapshot(app: Application) -> dict[str, Any]:
     """Return a small dashboard snapshot for tests and UI rendering."""
     downloads = collect_download_rows()
     tasks = collect_task_rows(app)
+    finished_count = sum(1 for row in downloads if row["status"] == "完成")
     return {
         "speed": f"{format_byte(get_total_download_speed())}/s",
         "active_count": get_active_download_count(),
@@ -142,9 +154,12 @@ def collect_dashboard_snapshot(app: Application) -> dict[str, Any]:
             "downloading" if get_download_state() is DownloadState.Downloading else "paused"
         ),
         "download_count": len(downloads),
+        "finished_count": finished_count,
         "task_count": len(tasks),
         "bot_enabled": bool(app.bot_token),
         "clash_enabled": bool(app.clash_config.get("enabled", True)),
+        "save_path": app.save_path,
+        "config_file": app.config_file,
     }
 
 
@@ -230,6 +245,7 @@ class NativeDownloaderUI:
         self.config_vars: dict[str, tk.Variable] = {}
         self.clash_vars: dict[str, tk.Variable] = {}
         self.task_row_keys: dict[str, Any] = {}
+        self.download_cards: dict[str, dict[str, Any]] = {}
 
         enable_high_dpi_awareness()
         self.root = tk.Tk()
@@ -263,11 +279,24 @@ class NativeDownloaderUI:
             style.theme_use("clam")
         except tk.TclError:
             pass
-        style.configure(".", font=("Microsoft YaHei UI", 10))
-        style.configure("Title.TLabel", font=("Microsoft YaHei UI", 18, "bold"))
-        style.configure("Metric.TLabel", font=("Microsoft YaHei UI", 16, "bold"))
-        style.configure("Primary.TButton", padding=(14, 8))
-        style.configure("Treeview", rowheight=30)
+        self.root.configure(bg=COLOR_BG)
+        style.configure(".", font=("Microsoft YaHei UI", 10), background=COLOR_BG, foreground=COLOR_TEXT)
+        style.configure("TFrame", background=COLOR_BG)
+        style.configure("Panel.TFrame", background=COLOR_PANEL)
+        style.configure("Title.TLabel", font=("Microsoft YaHei UI", 20, "bold"), background=COLOR_BG, foreground=COLOR_TEXT)
+        style.configure("Subtitle.TLabel", font=("Microsoft YaHei UI", 10), background=COLOR_BG, foreground=COLOR_MUTED)
+        style.configure("Metric.TLabel", font=("Microsoft YaHei UI", 18, "bold"), background=COLOR_PANEL, foreground=COLOR_PRIMARY_DARK)
+        style.configure("MetricName.TLabel", font=("Microsoft YaHei UI", 9), background=COLOR_PANEL, foreground=COLOR_MUTED)
+        style.configure("Card.TLabelframe", background=COLOR_PANEL, bordercolor=COLOR_BORDER, relief="solid")
+        style.configure("Card.TLabelframe.Label", background=COLOR_PANEL, foreground=COLOR_MUTED)
+        style.configure("Download.TFrame", background=COLOR_PANEL)
+        style.configure("DownloadTitle.TLabel", font=("Microsoft YaHei UI", 10, "bold"), background=COLOR_PANEL, foreground=COLOR_TEXT)
+        style.configure("DownloadMeta.TLabel", font=("Microsoft YaHei UI", 9), background=COLOR_PANEL, foreground=COLOR_MUTED)
+        style.configure("Primary.TButton", padding=(14, 8), background=COLOR_PRIMARY, foreground="#ffffff")
+        style.map("Primary.TButton", background=[("active", COLOR_PRIMARY_DARK)])
+        style.configure("Blue.Horizontal.TProgressbar", troughcolor="#eaf5ff", background=COLOR_PROGRESS, bordercolor="#eaf5ff", lightcolor=COLOR_PROGRESS, darkcolor=COLOR_PROGRESS)
+        style.configure("Treeview", rowheight=30, background=COLOR_PANEL, fieldbackground=COLOR_PANEL, foreground=COLOR_TEXT)
+        style.configure("Treeview.Heading", background="#eaf5ff", foreground=COLOR_TEXT)
 
     def _build_ui(self):
         shell = ttk.Frame(self.root, padding=16)
@@ -275,10 +304,11 @@ class NativeDownloaderUI:
 
         header = ttk.Frame(shell)
         header.pack(fill=tk.X)
-        ttk.Label(header, text="Telegram Media Downloader", style="Title.TLabel").pack(
-            side=tk.LEFT
-        )
-        self.state_label = ttk.Label(header, text="准备启动")
+        title_box = ttk.Frame(header)
+        title_box.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(title_box, text="Telegram Media Downloader", style="Title.TLabel").pack(anchor=tk.W)
+        ttk.Label(title_box, text="白蓝轻量控制台 · 实时任务 / 下载 / 配置", style="Subtitle.TLabel").pack(anchor=tk.W)
+        self.state_label = ttk.Label(header, text="准备启动", style="Subtitle.TLabel")
         self.state_label.pack(side=tk.RIGHT)
 
         self.notebook = ttk.Notebook(shell)
@@ -313,6 +343,7 @@ class NativeDownloaderUI:
             "speed": tk.StringVar(value="0 B/s"),
             "active": tk.StringVar(value="0"),
             "tasks": tk.StringVar(value="0"),
+            "finished": tk.StringVar(value="0"),
             "bot": tk.StringVar(value="未启用"),
             "clash": tk.StringVar(value="启用"),
         }
@@ -320,61 +351,68 @@ class NativeDownloaderUI:
             ("总下载速度", "speed"),
             ("活跃文件", "active"),
             ("运行任务", "tasks"),
+            ("完成文件", "finished"),
             ("机器人", "bot"),
             ("Clash", "clash"),
         ):
-            card = ttk.LabelFrame(metrics, text=title, padding=12)
-            card.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-            ttk.Label(card, textvariable=self.metric_vars[key], style="Metric.TLabel").pack(
-                anchor=tk.W
-            )
+            card = ttk.LabelFrame(metrics, text=title, padding=12, style="Card.TLabelframe")
+            card.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+            ttk.Label(card, textvariable=self.metric_vars[key], style="Metric.TLabel").pack(anchor=tk.W)
+
+        detail_panel = ttk.Frame(tab, style="Panel.TFrame", padding=12)
+        detail_panel.pack(fill=tk.X, pady=(14, 0))
+        self.overview_detail_vars = {
+            "state": tk.StringVar(value="状态：准备启动"),
+            "save_path": tk.StringVar(value="保存目录：-"),
+            "config_file": tk.StringVar(value="配置文件：-"),
+        }
+        for variable in self.overview_detail_vars.values():
+            ttk.Label(detail_panel, textvariable=variable, style="DownloadMeta.TLabel").pack(anchor=tk.W, pady=2)
 
         self.startup_text = tk.Text(tab, height=13, wrap=tk.WORD)
         self.startup_text.pack(fill=tk.BOTH, expand=True, pady=(14, 0))
+        self.startup_text.configure(bg=COLOR_PANEL, fg=COLOR_TEXT, insertbackground=COLOR_PRIMARY, relief=tk.FLAT, padx=10, pady=8)
         self.startup_text.insert(tk.END, "启动准备中：等待读取 config.yaml...\n")
         self.startup_text.configure(state=tk.DISABLED)
 
     def _build_download_tab(self):
         tab = ttk.Frame(self.notebook, padding=12)
         self.notebook.add(tab, text="文件下载")
-        columns = (
-            "task",
-            "chat",
-            "message",
-            "file",
-            "progress",
-            "size",
-            "speed",
-            "status",
-            "path",
+        header = ttk.Frame(tab)
+        header.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(header, text="文件下载进度", style="DownloadTitle.TLabel").pack(side=tk.LEFT)
+        self.download_summary_var = tk.StringVar(value="暂无下载任务")
+        ttk.Label(header, textvariable=self.download_summary_var, style="DownloadMeta.TLabel").pack(side=tk.RIGHT)
+
+        self.download_canvas = tk.Canvas(
+            tab,
+            bg=COLOR_BG,
+            highlightthickness=0,
+            borderwidth=0,
         )
-        self.download_tree = ttk.Treeview(tab, columns=columns, show="headings")
-        headings = {
-            "task": "任务",
-            "chat": "会话",
-            "message": "消息ID",
-            "file": "文件",
-            "progress": "进度",
-            "size": "大小",
-            "speed": "速度",
-            "status": "状态",
-            "path": "保存路径",
-        }
-        widths = {
-            "task": 70,
-            "chat": 130,
-            "message": 80,
-            "file": 220,
-            "progress": 90,
-            "size": 130,
-            "speed": 110,
-            "status": 80,
-            "path": 320,
-        }
-        for key in columns:
-            self.download_tree.heading(key, text=headings[key])
-            self.download_tree.column(key, width=widths[key], anchor=tk.W)
-        self.download_tree.pack(fill=tk.BOTH, expand=True)
+        scrollbar = ttk.Scrollbar(tab, orient=tk.VERTICAL, command=self.download_canvas.yview)
+        self.download_canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.download_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.download_list_frame = ttk.Frame(self.download_canvas)
+        self.download_canvas_window = self.download_canvas.create_window(
+            (0, 0), window=self.download_list_frame, anchor="nw"
+        )
+        self.download_list_frame.bind(
+            "<Configure>",
+            lambda _event: self.download_canvas.configure(
+                scrollregion=self.download_canvas.bbox("all")
+            ),
+        )
+        self.download_canvas.bind("<Configure>", self._resize_download_canvas)
+        self.download_canvas.bind_all("<MouseWheel>", self._on_download_mousewheel)
+        self.download_empty_label = ttk.Label(
+            self.download_list_frame,
+            text="暂无文件下载。收到任务后会在这里显示实时进度。",
+            style="DownloadMeta.TLabel",
+        )
+        self.download_empty_label.pack(fill=tk.X, pady=16)
 
     def _build_bot_tab(self):
         tab = ttk.Frame(self.notebook, padding=12)
@@ -497,6 +535,7 @@ class NativeDownloaderUI:
         tab = ttk.Frame(self.notebook, padding=12)
         self.notebook.add(tab, text="运行日志")
         self.log_text = tk.Text(tab, wrap=tk.WORD)
+        self.log_text.configure(bg=COLOR_PANEL, fg=COLOR_TEXT, insertbackground=COLOR_PRIMARY, relief=tk.FLAT, padx=10, pady=8)
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
     def _wire_logger(self):
@@ -580,33 +619,111 @@ class NativeDownloaderUI:
         self.metric_vars["speed"].set(snapshot["speed"])
         self.metric_vars["active"].set(str(snapshot["active_count"]))
         self.metric_vars["tasks"].set(str(snapshot["task_count"]))
+        self.metric_vars["finished"].set(
+            f"{snapshot['finished_count']}/{snapshot['download_count']}"
+        )
         self.metric_vars["bot"].set("启用" if snapshot["bot_enabled"] else "未启用")
         self.metric_vars["clash"].set("启用" if snapshot["clash_enabled"] else "关闭")
+        state_text = "下载中" if snapshot["download_state"] == "downloading" else "已暂停"
         self.state_label.configure(
-            text="下载中" if snapshot["download_state"] == "downloading" else "已暂停"
+            text=state_text
         )
+        self.overview_detail_vars["state"].set(
+            f"状态：{state_text} · 文件 {snapshot['finished_count']}/{snapshot['download_count']} · 活跃 {snapshot['active_count']}"
+        )
+        self.overview_detail_vars["save_path"].set(f"保存目录：{snapshot['save_path']}")
+        self.overview_detail_vars["config_file"].set(f"配置文件：{snapshot['config_file']}")
         self.pause_button.configure(
             text="暂停下载" if snapshot["download_state"] == "downloading" else "继续下载"
         )
 
     def _refresh_downloads(self):
-        self._replace_tree_rows(
-            self.download_tree,
-            [
-                (
-                    row["task_id"],
-                    row["chat_id"],
-                    row["message_id"],
-                    row["file_name"],
-                    row["progress"],
-                    f"{row['downloaded']} / {row['total']}",
-                    row["speed"],
-                    row["status"],
-                    row["path"],
-                )
-                for row in collect_download_rows()
-            ],
+        rows = collect_download_rows()
+        self.download_summary_var.set(
+            f"{len(rows)} 个文件 · {get_active_download_count()} 个活跃 · {format_byte(get_total_download_speed())}/s"
+            if rows
+            else "暂无下载任务"
         )
+        self._sync_download_cards(rows)
+
+    def _resize_download_canvas(self, event):
+        self.download_canvas.itemconfigure(self.download_canvas_window, width=event.width)
+
+    def _on_download_mousewheel(self, event):
+        if self.notebook.index(self.notebook.select()) == 1:
+            self.download_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def _create_download_card(self, row: dict[str, Any]) -> dict[str, Any]:
+        frame = ttk.Frame(self.download_list_frame, style="Download.TFrame", padding=12)
+        frame.pack(fill=tk.X, pady=(0, 8))
+        frame.columnconfigure(0, weight=1)
+
+        title = ttk.Label(frame, text=row["file_name"] or "-", style="DownloadTitle.TLabel")
+        title.grid(row=0, column=0, sticky=tk.EW)
+        status = ttk.Label(frame, text=row["status"], style="DownloadMeta.TLabel")
+        status.grid(row=0, column=1, sticky=tk.E, padx=(12, 0))
+
+        meta = ttk.Label(frame, style="DownloadMeta.TLabel")
+        meta.grid(row=1, column=0, columnspan=2, sticky=tk.EW, pady=(4, 8))
+
+        progress = ttk.Progressbar(
+            frame,
+            maximum=100,
+            mode="determinate",
+            style="Blue.Horizontal.TProgressbar",
+        )
+        progress.grid(row=2, column=0, sticky=tk.EW)
+        percent = ttk.Label(frame, width=8, anchor=tk.E, style="DownloadMeta.TLabel")
+        percent.grid(row=2, column=1, sticky=tk.E, padx=(12, 0))
+
+        path = ttk.Label(frame, style="DownloadMeta.TLabel")
+        path.grid(row=3, column=0, columnspan=2, sticky=tk.EW, pady=(6, 0))
+
+        card = {
+            "frame": frame,
+            "title": title,
+            "status": status,
+            "meta": meta,
+            "progress": progress,
+            "percent": percent,
+            "path": path,
+        }
+        self._update_download_card(card, row)
+        return card
+
+    @staticmethod
+    def _update_download_card(card: dict[str, Any], row: dict[str, Any]):
+        card["title"].configure(text=row["file_name"] or "-")
+        card["status"].configure(text=row["status"])
+        card["meta"].configure(
+            text=(
+                f"任务 {row['task_id']} · 会话 {row['chat_id']} · 消息 {row['message_id']} · "
+                f"{row['downloaded']} / {row['total']} · {row['speed']}"
+            )
+        )
+        card["progress"]["value"] = row["percent_value"]
+        card["percent"].configure(text=row["progress"])
+        card["path"].configure(text=row["path"])
+
+    def _sync_download_cards(self, rows: list[dict[str, Any]]):
+        if rows:
+            self.download_empty_label.pack_forget()
+        else:
+            if not self.download_empty_label.winfo_ismapped():
+                self.download_empty_label.pack(fill=tk.X, pady=16)
+
+        current_keys = {row["key"] for row in rows}
+        for key in list(self.download_cards):
+            if key not in current_keys:
+                self.download_cards[key]["frame"].destroy()
+                self.download_cards.pop(key, None)
+
+        for row in rows:
+            card = self.download_cards.get(row["key"])
+            if card is None:
+                self.download_cards[row["key"]] = self._create_download_card(row)
+            else:
+                self._update_download_card(card, row)
 
     def _refresh_tasks(self):
         rows = collect_task_rows(self.app)
