@@ -249,6 +249,7 @@ if (-not $SkipTests) {
         "tests.module.test_app_recovery",
         "tests.module.test_existing_file_recovery",
         "tests.module.test_history_timeout",
+        "tests.module.test_native_ui",
         "tests.module.test_scan_prefetch",
         "tests.module.test_web_api",
         "tests.utils.test_format"
@@ -264,7 +265,9 @@ if (-not $SkipTests) {
         "module\clash_controller.py",
         "module\network_watchdog.py",
         "module\get_chat_history_v2.py",
-        "module\web.py"
+        "module\web.py",
+        "module\native_ui.py",
+        "gui_launcher.py"
     )
 }
 
