@@ -27,20 +27,20 @@ from utils.format import format_byte
 
 
 POLL_INTERVAL_MS = 1000
-COLOR_BG = "#f8fbff"
+COLOR_BG = "#ffffff"
 COLOR_PANEL = "#ffffff"
-COLOR_PANEL_ALT = "#f1f8ff"
-COLOR_BORDER = "#d6e4f0"
+COLOR_PANEL_ALT = "#ffffff"
+COLOR_BORDER = "#d1d5db"
 COLOR_TEXT = "#0f172a"
-COLOR_MUTED = "#64748b"
-COLOR_PRIMARY = "#0ea5e9"
-COLOR_PRIMARY_DARK = "#0284c7"
-COLOR_PROGRESS = "#06b6d4"
-COLOR_SOFT_BLUE = "#e0f2fe"
-COLOR_SOFT_BLUE_ACTIVE = "#bae6fd"
+COLOR_MUTED = "#6b7280"
+COLOR_PRIMARY = "#f97316"
+COLOR_PRIMARY_DARK = "#ea580c"
+COLOR_PROGRESS = "#f97316"
+COLOR_SOFT_BLUE = "#f3f4f6"
+COLOR_SOFT_BLUE_ACTIVE = "#e5e7eb"
 COLOR_INPUT_BG = "#ffffff"
-COLOR_LOG_BG = "#0f172a"
-COLOR_LOG_FG = "#e2e8f0"
+COLOR_LOG_BG = "#ffffff"
+COLOR_LOG_FG = "#0f172a"
 
 
 def resource_path(relative_path: str) -> str:
@@ -307,9 +307,9 @@ class NativeDownloaderUI:
         style.map("Primary.TButton", background=[("pressed", COLOR_PRIMARY_DARK), ("active", COLOR_PRIMARY_DARK), ("disabled", "#a7d8f2")], foreground=[("disabled", "#eef8ff")], relief=[("pressed", "flat"), ("active", "flat")])
         style.configure("TEntry", fieldbackground=COLOR_INPUT_BG, foreground=COLOR_TEXT, bordercolor="#cbd5e1", lightcolor="#cbd5e1", darkcolor="#cbd5e1", insertcolor=COLOR_PRIMARY, padding=(6, 4))
         style.configure("TCombobox", fieldbackground=COLOR_INPUT_BG, foreground=COLOR_TEXT, bordercolor="#cbd5e1", arrowcolor=COLOR_PRIMARY, padding=(6, 4))
-        style.map("TCombobox", fieldbackground=[("readonly", COLOR_INPUT_BG)], selectbackground=[("readonly", COLOR_SOFT_BLUE)])
+        style.map("TCombobox", fieldbackground=[("readonly", COLOR_INPUT_BG)], selectbackground=[("readonly", "#f3f4f6")])
         style.configure("TNotebook", background=COLOR_BG, borderwidth=0, tabmargins=(0, 6, 0, 0))
-        style.configure("TNotebook.Tab", padding=(16, 8), background=COLOR_SOFT_BLUE, foreground=COLOR_TEXT, borderwidth=0, relief="flat", focuscolor=COLOR_SOFT_BLUE)
+        style.configure("TNotebook.Tab", padding=(16, 8), background="#f3f4f6", foreground=COLOR_TEXT, borderwidth=0, relief="flat", focuscolor="#f3f4f6")
         style.map(
             "TNotebook.Tab",
             background=[("selected", COLOR_PANEL), ("active", COLOR_SOFT_BLUE_ACTIVE), ("pressed", COLOR_SOFT_BLUE_ACTIVE)],
@@ -340,7 +340,7 @@ class NativeDownloaderUI:
         )
         style.configure("Blue.Horizontal.TProgressbar", troughcolor="#e2e8f0", background=COLOR_PROGRESS, bordercolor="#e2e8f0", lightcolor=COLOR_PROGRESS, darkcolor=COLOR_PROGRESS)
         style.configure("Treeview", rowheight=28, background=COLOR_PANEL, fieldbackground=COLOR_PANEL, foreground=COLOR_TEXT, bordercolor=COLOR_BORDER, lightcolor=COLOR_BORDER, darkcolor=COLOR_BORDER)
-        style.configure("Treeview.Heading", background=COLOR_SOFT_BLUE, foreground=COLOR_TEXT)
+        style.configure("Treeview.Heading", background="#f3f4f6", foreground=COLOR_TEXT)
 
     def _build_ui(self):
         shell = ttk.Frame(self.root, padding=(14, 12))
@@ -373,9 +373,6 @@ class NativeDownloaderUI:
             command=self.toggle_download_state,
         )
         self.pause_button.pack(side=tk.LEFT, ipadx=10)
-        ttk.Button(footer, text="保存配置", command=self.save_config, width=12).pack(
-            side=tk.LEFT, padx=(8, 0)
-        )
         ttk.Button(footer, text="退出", command=self.close, width=12).pack(side=tk.RIGHT)
 
     def _build_overview_tab(self):
@@ -603,6 +600,16 @@ class NativeDownloaderUI:
             tab,
             text="复杂的 chat / media_types / file_formats 仍建议直接编辑 config.yaml。",
         ).pack(anchor=tk.W, pady=(10, 0))
+
+        config_actions = ttk.Frame(tab)
+        config_actions.pack(fill=tk.X, pady=(12, 0))
+        ttk.Button(
+            config_actions,
+            text="保存配置",
+            command=self.save_config,
+            style="Primary.TButton",
+            width=14,
+        ).pack(side=tk.RIGHT)
 
     def _build_log_tab(self):
         tab = ttk.Frame(self.notebook, padding=(10, 10))
