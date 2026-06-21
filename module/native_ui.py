@@ -33,9 +33,9 @@ COLOR_PANEL_ALT = "#ffffff"
 COLOR_BORDER = "#d1d5db"
 COLOR_TEXT = "#0f172a"
 COLOR_MUTED = "#6b7280"
-COLOR_PRIMARY = "#f97316"
-COLOR_PRIMARY_DARK = "#ea580c"
-COLOR_PROGRESS = "#f97316"
+COLOR_PRIMARY = "#1e3a8a"
+COLOR_PRIMARY_DARK = "#172554"
+COLOR_PROGRESS = "#1e3a8a"
 COLOR_SOFT_BLUE = "#f3f4f6"
 COLOR_SOFT_BLUE_ACTIVE = "#e5e7eb"
 COLOR_INPUT_BG = "#ffffff"
@@ -295,7 +295,8 @@ class NativeDownloaderUI:
         style.configure("Subtitle.TLabel", font=("Microsoft YaHei UI", 10), background=COLOR_BG, foreground=COLOR_MUTED)
         style.configure("Metric.TLabel", font=("Microsoft YaHei UI", 16, "bold"), background=COLOR_PANEL, foreground=COLOR_PRIMARY_DARK)
         style.configure("MetricName.TLabel", font=("Microsoft YaHei UI", 9), background=COLOR_PANEL, foreground=COLOR_MUTED)
-        style.configure("Card.TLabelframe", background=COLOR_PANEL, bordercolor=COLOR_BORDER, relief="flat")
+        style.configure("MetricCard.TFrame", background=COLOR_PANEL, borderwidth=1, relief="solid")
+        style.configure("Card.TLabelframe", background=COLOR_PANEL, bordercolor=COLOR_BORDER, relief="solid")
         style.configure("Card.TLabelframe.Label", background=COLOR_PANEL, foreground=COLOR_MUTED)
         style.configure("Download.TFrame", background=COLOR_PANEL)
         style.configure("DownloadTitle.TLabel", font=("Microsoft YaHei UI", 10, "bold"), background=COLOR_PANEL, foreground=COLOR_TEXT)
@@ -304,7 +305,7 @@ class NativeDownloaderUI:
         style.configure("TButton", padding=(14, 6), background=COLOR_SOFT_BLUE, foreground=COLOR_TEXT, bordercolor=COLOR_SOFT_BLUE, relief="flat")
         style.map("TButton", background=[("pressed", COLOR_SOFT_BLUE_ACTIVE), ("active", COLOR_SOFT_BLUE_ACTIVE), ("disabled", "#edf2f8")], foreground=[("disabled", "#94a3b8")], relief=[("pressed", "flat"), ("active", "flat")])
         style.configure("Primary.TButton", padding=(16, 7), background=COLOR_PRIMARY, foreground="#ffffff", bordercolor=COLOR_PRIMARY, relief="flat")
-        style.map("Primary.TButton", background=[("pressed", COLOR_PRIMARY_DARK), ("active", COLOR_PRIMARY_DARK), ("disabled", "#a7d8f2")], foreground=[("disabled", "#eef8ff")], relief=[("pressed", "flat"), ("active", "flat")])
+        style.map("Primary.TButton", background=[("pressed", COLOR_PRIMARY_DARK), ("active", COLOR_PRIMARY_DARK), ("disabled", "#93a4c7")], foreground=[("disabled", "#eef2ff")], relief=[("pressed", "flat"), ("active", "flat")])
         style.configure("TEntry", fieldbackground=COLOR_INPUT_BG, foreground=COLOR_TEXT, bordercolor="#cbd5e1", lightcolor="#cbd5e1", darkcolor="#cbd5e1", insertcolor=COLOR_PRIMARY, padding=(6, 4))
         style.configure("TCombobox", fieldbackground=COLOR_INPUT_BG, foreground=COLOR_TEXT, bordercolor="#cbd5e1", arrowcolor=COLOR_PRIMARY, padding=(6, 4))
         style.map("TCombobox", fieldbackground=[("readonly", COLOR_INPUT_BG)], selectbackground=[("readonly", "#f3f4f6")])
@@ -396,8 +397,9 @@ class NativeDownloaderUI:
             ("机器人", "bot"),
             ("Clash", "clash"),
         ):
-            card = ttk.LabelFrame(metrics, text=title, padding=(10, 8), style="Card.TLabelframe")
+            card = ttk.Frame(metrics, padding=(12, 8), style="MetricCard.TFrame")
             card.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
+            ttk.Label(card, text=title, style="MetricName.TLabel").pack(anchor=tk.W)
             ttk.Label(card, textvariable=self.metric_vars[key], style="Metric.TLabel").pack(anchor=tk.W)
 
         detail_panel = ttk.Frame(tab, style="Panel.TFrame", padding=(10, 8))
