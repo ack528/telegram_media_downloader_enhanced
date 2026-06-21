@@ -116,6 +116,10 @@ class ClashController:
                 return self.selector, proxy["all"]
             logger.warning("Configured Clash selector not found: {}", self.selector)
 
+        first_manual_selector = self._find_first_manual_selector(proxies)
+        if first_manual_selector:
+            return first_manual_selector
+
         us_selectors = {
             name: proxy["all"]
             for name, proxy in proxies.items()
@@ -151,6 +155,20 @@ class ClashController:
             return "GLOBAL", us_selectors["GLOBAL"]
 
         return None, []
+
+    def _find_first_manual_selector(
+        self, proxies: Dict[str, dict]
+    ) -> Optional[Tuple[str, List[str]]]:
+        """Return the first hand-picked Selector group with US nodes."""
+        for name, proxy in proxies.items():
+            if name == "GLOBAL" or not proxy.get("all"):
+                continue
+            if str(proxy.get("type", "")).lower() != "selector":
+                continue
+            candidates = proxy["all"]
+            if any(self._is_us_node(node) for node in candidates):
+                return name, candidates
+        return None
 
     def _test_delay(self, node_name: str) -> Optional[int]:
         path = f"/proxies/{quote(node_name, safe='')}/delay"

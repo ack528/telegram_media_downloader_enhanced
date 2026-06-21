@@ -35,6 +35,7 @@ class ClashControllerTestCase(unittest.TestCase):
                     {
                         "proxies": {
                             "Proxy": {
+                                "type": "Selector",
                                 "all": [
                                     "HK 01",
                                     "US slow",
@@ -87,6 +88,31 @@ class ClashControllerTestCase(unittest.TestCase):
 
         self.assertEqual(selector, "manual-airport")
         self.assertEqual(candidates, ["HK 01", "\u7f8e\u56fd real"])
+
+    def test_find_selector_prefers_first_manual_selector_group(self):
+        controller = ClashController({})
+        selector, candidates = controller._find_selector(
+            {
+                "\u767d\u5ad6\u673a\u573a": {
+                    "type": "Selector",
+                    "all": ["HK 01", "\U0001f1fa\U0001f1f8 US 01"],
+                    "now": "\U0001f1fa\U0001f1f8 US 01",
+                },
+                "\u81ea\u52a8\u9009\u62e9": {
+                    "type": "URLTest",
+                    "all": ["\U0001f1fa\U0001f1f8 US 02"],
+                    "now": "\U0001f1fa\U0001f1f8 US 02",
+                },
+                "\u6545\u969c\u8f6c\u79fb": {
+                    "type": "Fallback",
+                    "all": ["\U0001f1fa\U0001f1f8 US 03"],
+                    "now": "\U0001f1fa\U0001f1f8 US 03",
+                },
+            }
+        )
+
+        self.assertEqual(selector, "\u767d\u5ad6\u673a\u573a")
+        self.assertEqual(candidates, ["HK 01", "\U0001f1fa\U0001f1f8 US 01"])
 
     def test_get_traffic_speed(self):
         def fake_request(method, url, **kwargs):
