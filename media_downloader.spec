@@ -29,6 +29,26 @@ def _collect_tk_assets():
 tk_datas, tk_binaries = _collect_tk_assets()
 
 
+def _add_tkinter_pure_modules(analysis):
+    base = Path(getattr(sys, "base_prefix", sys.prefix))
+    tkinter_root = base / "Lib" / "tkinter"
+    if not (tkinter_root / "__init__.py").exists():
+        return
+
+    existing = {entry[0] for entry in analysis.pure}
+    for module_file in tkinter_root.rglob("*.py"):
+        relative = module_file.relative_to(tkinter_root)
+        if relative.name == "__init__.py":
+            module_name = "tkinter"
+            if len(relative.parts) > 1:
+                module_name = "tkinter." + ".".join(relative.parts[:-1])
+        else:
+            module_name = "tkinter." + ".".join(relative.with_suffix("").parts)
+        if module_name not in existing:
+            analysis.pure.append((module_name, str(module_file), "PYMODULE"))
+            existing.add(module_name)
+
+
 a = Analysis(
     ['gui_launcher.py'],
     pathex=[],
@@ -46,6 +66,7 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+_add_tkinter_pure_modules(a)
 pyz = PYZ(a.pure)
 
 exe = EXE(
