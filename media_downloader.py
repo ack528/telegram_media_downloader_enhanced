@@ -1253,6 +1253,7 @@ async def stop_server(client: pyrogram.Client):
 
 def main():
     """Main function of the downloader."""
+    asyncio.set_event_loop(app.loop)
     tasks = []
     client = HookClient(
         "media_downloader",

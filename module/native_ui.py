@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import ctypes
 import os
 import queue
@@ -32,6 +33,11 @@ def resource_path(relative_path: str) -> str:
     """Resolve resources both from source checkout and PyInstaller one-file builds."""
     base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
     return os.path.join(base_path, relative_path)
+
+
+def bind_core_event_loop(core_module):
+    """Bind the downloader event loop to the current thread before Pyrogram starts."""
+    asyncio.set_event_loop(core_module.app.loop)
 
 
 def enable_high_dpi_awareness():
@@ -488,6 +494,7 @@ class NativeDownloaderUI:
 
     def _run_core(self):
         try:
+            bind_core_event_loop(self.core)
             if self.core._check_config():
                 self.config_loaded = True
                 self._load_config_vars()

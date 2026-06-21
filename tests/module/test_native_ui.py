@@ -1,9 +1,15 @@
 import os
+import asyncio
 import tempfile
+import threading
 import unittest
 
 from module.app import Application
-from module.native_ui import apply_config_changes, collect_dashboard_snapshot
+from module.native_ui import (
+    apply_config_changes,
+    bind_core_event_loop,
+    collect_dashboard_snapshot,
+)
 
 
 class NativeUiTestCase(unittest.TestCase):
@@ -53,6 +59,22 @@ class NativeUiTestCase(unittest.TestCase):
         self.assertEqual(self.app.scan_prefetch_limit, 4)
         self.assertEqual(self.app.clash_config["low_speed_kb"], 150)
         self.assertTrue(os.path.exists(self.app.config_file))
+
+    def test_bind_core_event_loop_in_worker_thread(self):
+        class Core:
+            app = self.app
+
+        result = []
+
+        def worker():
+            bind_core_event_loop(Core)
+            result.append(asyncio.get_event_loop() is self.app.loop)
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join()
+
+        self.assertEqual(result, [True])
 
 
 if __name__ == "__main__":
