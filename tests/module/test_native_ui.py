@@ -5,10 +5,12 @@ import threading
 import unittest
 
 from module.app import Application
+from module.app import ChatDownloadConfig
 from module.native_ui import (
     apply_config_changes,
     bind_core_event_loop,
     collect_dashboard_snapshot,
+    delete_task,
 )
 
 
@@ -21,9 +23,10 @@ class NativeUiTestCase(unittest.TestCase):
         self.app.config = {
             "api_id": "1",
             "api_hash": "hash",
+            "bot_token": "token",
             "media_types": ["video"],
             "file_formats": {"video": ["all"]},
-            "chat": [],
+            "chat": [{"chat_id": "chat", "last_read_message_id": 1}],
             "clash": dict(self.app.clash_config),
         }
         self.app.app_data = {}
@@ -60,6 +63,12 @@ class NativeUiTestCase(unittest.TestCase):
         self.assertEqual(self.app.clash_config["low_speed_kb"], 150)
         self.assertTrue(os.path.exists(self.app.config_file))
 
+        with open(self.app.config_file, encoding="utf-8") as config_file:
+            saved = config_file.read()
+        self.assertIn("api_id", saved)
+        self.assertIn("bot_token", saved)
+        self.assertIn("media_types", saved)
+
     def test_bind_core_event_loop_in_worker_thread(self):
         class Core:
             app = self.app
@@ -75,6 +84,23 @@ class NativeUiTestCase(unittest.TestCase):
         thread.join()
 
         self.assertEqual(result, [True])
+
+    def test_apply_config_changes_rejects_before_config_is_loaded(self):
+        self.app.config = {}
+
+        with self.assertRaises(ValueError):
+            apply_config_changes(self.app, {"save_path": self.temp_dir.name})
+
+    def test_delete_task_removes_runtime_and_recovery_data(self):
+        config = ChatDownloadConfig()
+        config.ids_to_retry = [10]
+        self.app.chat_download_config["chat"] = config
+        self.app.app_data = {"chat": [{"chat_id": "chat", "ids_to_retry": [10]}]}
+
+        self.assertTrue(delete_task(self.app, "chat"))
+        self.assertNotIn("chat", self.app.chat_download_config)
+        self.assertEqual(self.app.app_data["chat"], [])
+        self.assertEqual(self.app.config["chat"], [])
 
 
 if __name__ == "__main__":

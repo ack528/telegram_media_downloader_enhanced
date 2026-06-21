@@ -480,6 +480,38 @@ class Application:
             ]
         )
 
+    def persist_config_file(self):
+        """Persist config.yaml without rebuilding recovery task data."""
+        with open(self.config_file, "w", encoding="utf-8") as yaml_file:
+            _yaml.dump(self.config, yaml_file)
+
+    def remove_download_task(self, chat_id: Union[int, str]) -> bool:
+        """Stop and remove a runtime download task from recovery tracking."""
+        if chat_id not in self.chat_download_config:
+            return False
+
+        download_config = self.chat_download_config.pop(chat_id)
+        node = getattr(download_config, "node", None)
+        if node:
+            node.stop_transmission()
+
+        chats = self.app_data.get("chat")
+        if isinstance(chats, list):
+            self.app_data["chat"] = [
+                chat for chat in chats if chat.get("chat_id") != chat_id
+            ]
+            with open(self.app_data_file, "w", encoding="utf-8") as yaml_file:
+                _yaml.dump(self.app_data, yaml_file)
+
+        config_chats = self.config.get("chat")
+        if isinstance(config_chats, list):
+            self.config["chat"] = [
+                chat for chat in config_chats if chat.get("chat_id") != chat_id
+            ]
+            self.persist_config_file()
+
+        return True
+
     # pylint: disable = R0915
     def assign_config(self, _config: dict) -> bool:
         """assign config from str.

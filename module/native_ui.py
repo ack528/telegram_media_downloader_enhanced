@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Any
 
 from module.app import Application, DownloadStatus
@@ -115,6 +115,7 @@ def collect_task_rows(app: Application) -> list[dict[str, Any]]:
             {
                 "task_id": getattr(node, "task_id", ""),
                 "source": "机器人" if getattr(config, "is_bot_task", False) else "配置",
+                "chat_key": chat_id,
                 "chat_id": str(chat_id),
                 "progress": format_percent(finished, total),
                 "finished": finished,
@@ -149,6 +150,9 @@ def collect_dashboard_snapshot(app: Application) -> dict[str, Any]:
 
 def apply_config_changes(app: Application, values: dict[str, Any]) -> list[str]:
     """Apply editable config values and persist config.yaml."""
+    if not app.config:
+        raise ValueError("配置尚未加载完成，请稍后再保存。")
+
     restart_required = []
 
     def get_int(name: str, default: int, minimum: int = 0) -> int:
@@ -204,8 +208,13 @@ def apply_config_changes(app: Application, values: dict[str, Any]) -> list[str]:
             app.clash_config[key] = value
         app.config["clash"] = dict(app.clash_config)
 
-    app.update_config(True)
+    app.persist_config_file()
     return sorted(set(restart_required))
+
+
+def delete_task(app: Application, chat_id: Any) -> bool:
+    """Delete a runtime task and persist recovery data."""
+    return app.remove_download_task(chat_id)
 
 
 class NativeDownloaderUI:
@@ -220,6 +229,7 @@ class NativeDownloaderUI:
         self.config_loaded = False
         self.config_vars: dict[str, tk.Variable] = {}
         self.clash_vars: dict[str, tk.Variable] = {}
+        self.task_row_keys: dict[str, Any] = {}
 
         enable_high_dpi_awareness()
         self.root = tk.Tk()
@@ -395,6 +405,13 @@ class NativeDownloaderUI:
             self.task_tree.column(key, width=120, anchor=tk.W)
         self.task_tree.pack(fill=tk.X)
 
+        task_actions = ttk.Frame(tab)
+        task_actions.pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(task_actions, text="删除选中任务", command=self.delete_selected_task).pack(
+            side=tk.LEFT
+        )
+        self.task_tree.bind("<Delete>", lambda _event: self.delete_selected_task())
+
         ttk.Label(tab, text="机器人最近状态消息").pack(anchor=tk.W, pady=(14, 4))
         self.bot_message_text = tk.Text(tab, height=14, wrap=tk.WORD)
         self.bot_message_text.pack(fill=tk.BOTH, expand=True)
@@ -427,6 +444,16 @@ class NativeDownloaderUI:
                 widget = ttk.Combobox(
                     grid, textvariable=var, values=("ZH", "EN"), state="readonly"
                 )
+            elif key == "save_path":
+                path_frame = ttk.Frame(grid)
+                entry = ttk.Entry(path_frame, textvariable=var)
+                entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+                ttk.Button(
+                    path_frame,
+                    text="选择...",
+                    command=lambda variable=var: self.choose_directory(variable),
+                ).pack(side=tk.LEFT, padx=(6, 0))
+                widget = path_frame
             else:
                 widget = ttk.Entry(grid, textvariable=var)
             widget.grid(row=row, column=col + 1, sticky=tk.EW, padx=(8, 20), pady=6)
@@ -583,6 +610,7 @@ class NativeDownloaderUI:
 
     def _refresh_tasks(self):
         rows = collect_task_rows(self.app)
+        self.task_row_keys = {}
         self._replace_tree_rows(
             self.task_tree,
             [
@@ -599,6 +627,8 @@ class NativeDownloaderUI:
                 for row in rows
             ],
         )
+        for item, row in zip(self.task_tree.get_children(), rows):
+            self.task_row_keys[item] = row["chat_key"]
         messages = [row["last_bot_message"] for row in rows if row["last_bot_message"]]
         self.bot_message_text.configure(state=tk.NORMAL)
         self.bot_message_text.delete("1.0", tk.END)
@@ -621,6 +651,13 @@ class NativeDownloaderUI:
         self._refresh_metrics()
 
     def save_config(self):
+        if not self.config_loaded or not self.app.config:
+            messagebox.showwarning(
+                "配置尚未加载",
+                "请等待启动准备完成并成功读取 config.yaml 后再保存配置。",
+            )
+            return
+
         values: dict[str, Any] = {
             key: var.get() for key, var in self.config_vars.items()
         }
@@ -641,6 +678,42 @@ class NativeDownloaderUI:
             )
         else:
             messagebox.showinfo("配置已保存", "配置已写入 config.yaml。")
+
+    def choose_directory(self, variable: tk.Variable):
+        initial_dir = str(variable.get() or self.app.base_path)
+        if not os.path.isdir(initial_dir):
+            initial_dir = self.app.base_path
+        selected = filedialog.askdirectory(
+            parent=self.root,
+            title="选择保存目录",
+            initialdir=initial_dir,
+            mustexist=False,
+        )
+        if selected:
+            variable.set(selected)
+
+    def delete_selected_task(self):
+        selected = self.task_tree.selection()
+        if not selected:
+            messagebox.showinfo("删除任务", "请先在任务列表中选择一个任务。")
+            return
+
+        deleted = 0
+        for item in selected:
+            chat_id = self.task_row_keys.get(item)
+            if chat_id is None:
+                continue
+            if messagebox.askyesno(
+                "删除任务",
+                f"确定删除任务 chat_id={chat_id} 吗？当前下载会停止，"
+                "异常恢复记录和 config.yaml 中对应的 chat 配置也会移除。",
+            ):
+                if delete_task(self.app, chat_id):
+                    deleted += 1
+
+        if deleted:
+            self._refresh_tasks()
+            self._append_startup(f"已删除 {deleted} 个任务。\n")
 
     def close(self):
         if messagebox.askokcancel("退出", "确定要退出下载器吗？"):
