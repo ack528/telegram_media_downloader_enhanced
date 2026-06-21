@@ -43,10 +43,22 @@ from utils.meta import print_meta
 from utils.meta_data import MetaData
 
 
+def _is_usable_console_stream(stream) -> bool:
+    """Return True only for real streams that can be used by Rich/loguru."""
+    if stream is None:
+        return False
+    try:
+        stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        return False
+    return True
+
+
 def _configure_startup_logging():
     """Configure logging safely for console and GUI/no-console builds."""
     logger.remove()
-    sink = sys.stderr if sys.stderr is not None else (lambda _: None)
+    has_console_stream = _is_usable_console_stream(sys.stderr)
+    sink = sys.stderr if has_console_stream else (lambda _: None)
     logger.add(
         sink,
         level="INFO",
@@ -55,7 +67,7 @@ def _configure_startup_logging():
         or record["level"].no >= logger.level("WARNING").no,
     )
 
-    handler = RichHandler() if sys.stderr is not None else logging.NullHandler()
+    handler = RichHandler() if has_console_stream else logging.NullHandler()
     logging.basicConfig(
         level=logging.WARNING,
         format="%(message)s",
@@ -808,11 +820,25 @@ def _check_config() -> bool:
     print_meta(logger)
     try:
         _load_config()
+        app.prepare_runtime_paths()
         logger.add(
             os.path.join(app.log_file_path, "tdl.log"),
             rotation="10 MB",
             retention="10 days",
             level=app.log_level,
+        )
+        logger.bind(console=True).info(
+            "启动配置读取完成：config={}, data={}, sessions={}（{} 个 session 文件）",
+            app.config_file,
+            app.app_data_file,
+            app.session_file_path,
+            app.count_session_files(),
+        )
+        logger.bind(console=True).info(
+            "运行目录准备完成：downloads={}, temp={}, log={}",
+            app.save_path,
+            app.temp_save_path,
+            app.log_file_path,
         )
         set_status_clash_config(app.clash_config)
         logger.info(

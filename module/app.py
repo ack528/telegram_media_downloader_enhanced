@@ -458,6 +458,28 @@ class Application:
             min(32, (os.cpu_count() or 0) + 4), thread_name_prefix="multi_task"
         )
 
+    def prepare_runtime_paths(self):
+        """Create runtime folders used by config, logs, temp files, and sessions."""
+        for directory in (
+            self.save_path,
+            self.temp_save_path,
+            self.log_file_path,
+            self.session_file_path,
+        ):
+            os.makedirs(directory, exist_ok=True)
+
+    def count_session_files(self) -> int:
+        """Return the number of Pyrogram session files in the session directory."""
+        if not os.path.isdir(self.session_file_path):
+            return 0
+        return len(
+            [
+                name
+                for name in os.listdir(self.session_file_path)
+                if name.endswith((".session", ".session-journal"))
+            ]
+        )
+
     # pylint: disable = R0915
     def assign_config(self, _config: dict) -> bool:
         """assign config from str.
@@ -1032,8 +1054,7 @@ class Application:
     def pre_run(self):
         """before run application do"""
         self.cloud_drive_config.pre_run()
-        if not os.path.exists(self.session_file_path):
-            os.makedirs(self.session_file_path)
+        self.prepare_runtime_paths()
         set_language(self.language)
 
     def is_match_advertisement(self, caption) -> bool:

@@ -56,6 +56,7 @@ a = Analysis(
     datas=[
         ('./module/templates', './module/templates'),
         ('./module/static/', './module/static'),
+        ('./assets', './assets'),
         *tk_datas,
     ],
     hiddenimports=['tkinter', '_tkinter'],
@@ -76,6 +77,7 @@ exe = EXE(
     a.datas,
     [],
     name='tdl',
+    icon='assets/tdl_logo.ico',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

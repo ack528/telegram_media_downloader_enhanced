@@ -1,5 +1,6 @@
 """Utility module to manage meta info."""
 import platform
+import sys
 
 from rich.console import Console
 
@@ -11,13 +12,24 @@ SYSTEM_VERSION = f"{platform.system()} {platform.release()}"
 LANG_CODE = "en"
 
 
+def _is_usable_console_stream(stream) -> bool:
+    if stream is None:
+        return False
+    try:
+        stream.fileno()
+    except (AttributeError, OSError, ValueError):
+        return False
+    return True
+
+
 def print_meta(logger):
     """Prints meta-data of the downloader script."""
-    console = Console()
-    # pylint: disable = C0301
-    console.log(
-        f"[bold]Telegram Media Downloader v{__version__}[/bold],\n[i]{__copyright__}[/i]"
-    )
-    console.log(f"Licensed under the terms of the {__license__}", end="\n\n")
+    if _is_usable_console_stream(sys.stderr):
+        console = Console(stderr=True)
+        # pylint: disable = C0301
+        console.log(
+            f"[bold]Telegram Media Downloader v{__version__}[/bold],\n[i]{__copyright__}[/i]"
+        )
+        console.log(f"Licensed under the terms of the {__license__}", end="\n\n")
     logger.info(f"Device: {DEVICE_MODEL} - {APP_VERSION}")
     logger.info(f"System: {SYSTEM_VERSION} ({LANG_CODE.upper()})")

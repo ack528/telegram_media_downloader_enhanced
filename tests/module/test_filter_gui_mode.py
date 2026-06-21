@@ -29,6 +29,25 @@ class FilterGuiModeTestCase(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_media_downloader_imports_when_standard_error_has_no_fileno(self):
+        code = (
+            "import sys\n"
+            "class NoFileno:\n"
+            "    def write(self, value): pass\n"
+            "    def flush(self): pass\n"
+            "sys.stderr=NoFileno()\n"
+            "import media_downloader\n"
+            "assert media_downloader.app is not None\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

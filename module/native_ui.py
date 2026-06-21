@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import os
 import queue
+import sys
 import threading
 import time
 import tkinter as tk
@@ -25,6 +26,12 @@ from utils.format import format_byte
 
 
 POLL_INTERVAL_MS = 1000
+
+
+def resource_path(relative_path: str) -> str:
+    """Resolve resources both from source checkout and PyInstaller one-file builds."""
+    base_path = getattr(sys, "_MEIPASS", os.path.abspath("."))
+    return os.path.join(base_path, relative_path)
 
 
 def enable_high_dpi_awareness():
@@ -213,10 +220,19 @@ class NativeDownloaderUI:
         self.root.title("Telegram Media Downloader")
         self.root.geometry("1180x760")
         self.root.minsize(980, 620)
+        self._apply_window_icon()
         self._apply_scaling()
         self._build_style()
         self._build_ui()
         self._wire_logger()
+
+    def _apply_window_icon(self):
+        icon_path = resource_path(os.path.join("assets", "tdl_logo.ico"))
+        if os.path.exists(icon_path):
+            try:
+                self.root.iconbitmap(icon_path)
+            except tk.TclError:
+                pass
 
     def _apply_scaling(self):
         try:
