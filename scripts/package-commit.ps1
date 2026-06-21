@@ -5,6 +5,8 @@ param(
     [string]$CommitBody = "",
     [string]$SpecPath = "media_downloader.spec",
     [switch]$SkipTests,
+    [switch]$FullTests,
+    [switch]$CleanBuild,
     [switch]$NoBuild
 )
 
@@ -30,23 +32,35 @@ $repoRoot = Resolve-Path (Join-Path $scriptRoot "..")
 Set-Location $repoRoot
 
 if (-not $SkipTests) {
-    Invoke-Checked ".\.venv\Scripts\python.exe" @(
-        "-m",
-        "unittest",
-        "tests.module.test_bot_status",
-        "tests.module.test_clash_controller",
-        "tests.module.test_resilience",
-        "tests.module.test_app_recovery",
-        "tests.module.test_existing_file_recovery",
-        "tests.module.test_filter_gui_mode",
-        "tests.module.test_history_timeout",
+    $testModules = @(
         "tests.module.test_native_ui",
-        "tests.module.test_scan_prefetch",
-        "tests.utils.test_format"
+        "tests.module.test_app",
+        "tests.module.test_resilience"
     )
-    Invoke-Checked ".\.venv\Scripts\python.exe" @(
+
+    if ($FullTests) {
+        $testModules = @(
+            "tests.module.test_bot_status",
+            "tests.module.test_clash_controller",
+            "tests.module.test_resilience",
+            "tests.module.test_app",
+            "tests.module.test_app_recovery",
+            "tests.module.test_existing_file_recovery",
+            "tests.module.test_filter_gui_mode",
+            "tests.module.test_history_timeout",
+            "tests.module.test_native_ui",
+            "tests.module.test_scan_prefetch",
+            "tests.utils.test_format"
+        )
+    }
+
+    $testArgs = @(
         "-m",
-        "py_compile",
+        "unittest"
+    ) + $testModules
+    Invoke-Checked ".\.venv\Scripts\python.exe" $testArgs
+
+    $compileModules = @(
         "media_downloader.py",
         "module\app.py",
         "module\bot.py",
@@ -55,21 +69,33 @@ if (-not $SkipTests) {
         "module\clash_controller.py",
         "module\network_watchdog.py",
         "module\get_chat_history_v2.py",
-        "module\web.py",
         "module\native_ui.py",
         "module\filter.py",
         "gui_launcher.py"
     )
+
+    if ($FullTests) {
+        $compileModules += "module\web.py"
+    }
+
+    $compileArgs = @(
+        "-m",
+        "py_compile"
+    ) + $compileModules
+    Invoke-Checked ".\.venv\Scripts\python.exe" $compileArgs
 }
 
 if (-not $NoBuild) {
-    Invoke-Checked ".\.venv\Scripts\python.exe" @(
+    $buildArgs = @(
         "-m",
         "PyInstaller",
         $SpecPath,
-        "--clean",
         "--noconfirm"
     )
+    if ($CleanBuild) {
+        $buildArgs += "--clean"
+    }
+    Invoke-Checked ".\.venv\Scripts\python.exe" $buildArgs
     if (-not (Test-Path "dist\tdl.exe")) {
         throw "Build output not found: dist\tdl.exe"
     }
