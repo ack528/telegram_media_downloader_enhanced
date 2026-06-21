@@ -101,10 +101,37 @@ logging.getLogger("pyrogram").addFilter(LogFilter())
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
 
 
+def _clash_low_speed_threshold() -> int:
+    """Return the current Clash low-speed threshold in bytes per second."""
+    try:
+        return int(app.clash_config.get("low_speed_kb", 100)) * 1024
+    except (TypeError, ValueError):
+        return 100 * 1024
+
+
+def _downloads_are_healthy_for_clash_switch() -> Tuple[bool, int, int, int]:
+    """Return whether active downloads are healthy enough to skip node switching."""
+    active_count = get_active_download_count()
+    speed = get_total_download_speed()
+    low_speed_bytes = _clash_low_speed_threshold()
+    return active_count > 0 and speed >= low_speed_bytes, active_count, speed, low_speed_bytes
+
+
 def request_clash_switch(reason: str):
     """Ask the Clash monitor to switch nodes because network requests are failing."""
     global _clash_switch_reason
     if not app.clash_config.get("enabled", True):
+        return
+
+    healthy, active_count, speed, low_speed_bytes = _downloads_are_healthy_for_clash_switch()
+    if healthy:
+        logger.warning(
+            "Ignored Clash switch request while downloads are healthy: reason={}, active={}, speed={}/s, threshold={}/s",
+            reason,
+            active_count,
+            format_byte(speed),
+            format_byte(low_speed_bytes),
+        )
         return
 
     _clash_switch_reason = reason
@@ -1162,6 +1189,19 @@ async def monitor_low_download_speed():
 
         if _clash_switch_event.is_set():
             switch_reason = _clash_switch_reason or "Telegram network request failed"
+            healthy, active_count, speed, threshold = _downloads_are_healthy_for_clash_switch()
+            if healthy:
+                _clash_switch_event.clear()
+                _clash_switch_reason = None
+                low_speed_since = None
+                logger.warning(
+                    "Skipped Clash switch because active downloads recovered: reason={}, active={}, speed={}/s, threshold={}/s",
+                    switch_reason,
+                    active_count,
+                    format_byte(speed),
+                    format_byte(threshold),
+                )
+                continue
         elif get_active_download_count() <= 0:
             low_speed_since = None
             continue

@@ -99,11 +99,13 @@ class ResilienceTestCase(unittest.IsolatedAsyncioTestCase):
         try:
             with mock.patch("media_downloader.LOW_SPEED_MONITOR_INTERVAL", 0.01):
                 with mock.patch("media_downloader._switch_clash_node", fake_switch):
-                    task = asyncio.create_task(
-                        media_downloader.monitor_low_download_speed()
-                    )
-                    media_downloader.request_clash_switch("fetch failed")
-                    await asyncio.wait_for(task, timeout=1)
+                    with mock.patch("media_downloader.get_active_download_count", return_value=0):
+                        with mock.patch("media_downloader.get_total_download_speed", return_value=0):
+                            task = asyncio.create_task(
+                                media_downloader.monitor_low_download_speed()
+                            )
+                            media_downloader.request_clash_switch("fetch failed")
+                            await asyncio.wait_for(task, timeout=1)
         finally:
             media_downloader._clash_switch_event.clear()
             media_downloader._clash_switch_reason = None
@@ -111,6 +113,27 @@ class ResilienceTestCase(unittest.IsolatedAsyncioTestCase):
             media_downloader.app.is_running = old_is_running
 
         self.assertEqual(switch_calls, 1)
+
+    async def test_single_fetch_failure_does_not_switch_clash_when_downloads_are_healthy(self):
+        import media_downloader
+
+        old_clash_config = media_downloader.app.clash_config
+        media_downloader.app.clash_config = {
+            "enabled": True,
+            "low_speed_kb": 100,
+        }
+        media_downloader._clash_switch_event.clear()
+        media_downloader._clash_switch_reason = None
+
+        try:
+            with mock.patch("media_downloader.get_active_download_count", return_value=4):
+                with mock.patch("media_downloader.get_total_download_speed", return_value=2 * 1024 * 1024):
+                    media_downloader.request_clash_switch("message 1709 fetch failed")
+        finally:
+            media_downloader.app.clash_config = old_clash_config
+
+        self.assertFalse(media_downloader._clash_switch_event.is_set())
+        self.assertIsNone(media_downloader._clash_switch_reason)
 
 
 if __name__ == "__main__":

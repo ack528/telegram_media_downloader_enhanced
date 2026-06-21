@@ -27,14 +27,19 @@ from utils.format import format_byte
 
 
 POLL_INTERVAL_MS = 1000
-COLOR_BG = "#f7fbff"
+COLOR_BG = "#f3f6fb"
 COLOR_PANEL = "#ffffff"
-COLOR_BORDER = "#d7eaff"
-COLOR_TEXT = "#123047"
-COLOR_MUTED = "#5f7385"
-COLOR_PRIMARY = "#2f8cff"
-COLOR_PRIMARY_DARK = "#1769d1"
-COLOR_PROGRESS = "#63b3ff"
+COLOR_BORDER = "#dfe8f5"
+COLOR_TEXT = "#071a3a"
+COLOR_MUTED = "#52698a"
+COLOR_PRIMARY = "#2f66e8"
+COLOR_PRIMARY_DARK = "#1f4fc4"
+COLOR_PROGRESS = "#2f66e8"
+COLOR_SOFT_BLUE = "#e5edf8"
+COLOR_SOFT_BLUE_ACTIVE = "#d8e4f4"
+COLOR_INPUT_BG = "#ffffff"
+COLOR_LOG_BG = "#101827"
+COLOR_LOG_FG = "#eaf1ff"
 
 
 def resource_path(relative_path: str) -> str:
@@ -283,6 +288,7 @@ class NativeDownloaderUI:
         style.configure(".", font=("Microsoft YaHei UI", 10), background=COLOR_BG, foreground=COLOR_TEXT)
         style.configure("TFrame", background=COLOR_BG)
         style.configure("Panel.TFrame", background=COLOR_PANEL)
+        style.configure("Header.TFrame", background=COLOR_BG)
         style.configure("Title.TLabel", font=("Microsoft YaHei UI", 20, "bold"), background=COLOR_BG, foreground=COLOR_TEXT)
         style.configure("Subtitle.TLabel", font=("Microsoft YaHei UI", 10), background=COLOR_BG, foreground=COLOR_MUTED)
         style.configure("Metric.TLabel", font=("Microsoft YaHei UI", 18, "bold"), background=COLOR_PANEL, foreground=COLOR_PRIMARY_DARK)
@@ -292,17 +298,30 @@ class NativeDownloaderUI:
         style.configure("Download.TFrame", background=COLOR_PANEL)
         style.configure("DownloadTitle.TLabel", font=("Microsoft YaHei UI", 10, "bold"), background=COLOR_PANEL, foreground=COLOR_TEXT)
         style.configure("DownloadMeta.TLabel", font=("Microsoft YaHei UI", 9), background=COLOR_PANEL, foreground=COLOR_MUTED)
-        style.configure("Primary.TButton", padding=(14, 8), background=COLOR_PRIMARY, foreground="#ffffff")
-        style.map("Primary.TButton", background=[("active", COLOR_PRIMARY_DARK)])
-        style.configure("Blue.Horizontal.TProgressbar", troughcolor="#eaf5ff", background=COLOR_PROGRESS, bordercolor="#eaf5ff", lightcolor=COLOR_PROGRESS, darkcolor=COLOR_PROGRESS)
+        style.configure("TLabel", background=COLOR_BG, foreground=COLOR_TEXT)
+        style.configure("TButton", padding=(14, 7), background=COLOR_SOFT_BLUE, foreground=COLOR_TEXT, bordercolor=COLOR_SOFT_BLUE)
+        style.map("TButton", background=[("active", COLOR_SOFT_BLUE_ACTIVE), ("disabled", "#edf2f8")], foreground=[("disabled", "#93a4ba")])
+        style.configure("Primary.TButton", padding=(14, 8), background=COLOR_PRIMARY, foreground="#ffffff", bordercolor=COLOR_PRIMARY)
+        style.map("Primary.TButton", background=[("active", COLOR_PRIMARY_DARK), ("disabled", "#aabbea")], foreground=[("disabled", "#eef3ff")])
+        style.configure("TEntry", fieldbackground=COLOR_INPUT_BG, foreground=COLOR_TEXT, bordercolor="#c8d4e4", lightcolor="#c8d4e4", darkcolor="#c8d4e4", insertcolor=COLOR_PRIMARY)
+        style.configure("TCombobox", fieldbackground=COLOR_INPUT_BG, foreground=COLOR_TEXT, bordercolor="#c8d4e4", arrowcolor=COLOR_PRIMARY)
+        style.map("TCombobox", fieldbackground=[("readonly", COLOR_INPUT_BG)], selectbackground=[("readonly", COLOR_SOFT_BLUE)])
+        style.configure("TNotebook", background=COLOR_BG, borderwidth=0, tabmargins=(0, 8, 0, 0))
+        style.configure("TNotebook.Tab", padding=(18, 9), background=COLOR_SOFT_BLUE, foreground=COLOR_TEXT, borderwidth=0)
+        style.map(
+            "TNotebook.Tab",
+            background=[("selected", COLOR_PANEL), ("active", COLOR_SOFT_BLUE_ACTIVE)],
+            foreground=[("selected", COLOR_PRIMARY_DARK), ("active", COLOR_TEXT)],
+        )
+        style.configure("Blue.Horizontal.TProgressbar", troughcolor="#dfe5ee", background=COLOR_PROGRESS, bordercolor="#dfe5ee", lightcolor=COLOR_PROGRESS, darkcolor=COLOR_PROGRESS)
         style.configure("Treeview", rowheight=30, background=COLOR_PANEL, fieldbackground=COLOR_PANEL, foreground=COLOR_TEXT)
-        style.configure("Treeview.Heading", background="#eaf5ff", foreground=COLOR_TEXT)
+        style.configure("Treeview.Heading", background=COLOR_SOFT_BLUE, foreground=COLOR_TEXT)
 
     def _build_ui(self):
         shell = ttk.Frame(self.root, padding=16)
         shell.pack(fill=tk.BOTH, expand=True)
 
-        header = ttk.Frame(shell)
+        header = ttk.Frame(shell, style="Header.TFrame")
         header.pack(fill=tk.X)
         title_box = ttk.Frame(header)
         title_box.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -535,7 +554,7 @@ class NativeDownloaderUI:
         tab = ttk.Frame(self.notebook, padding=12)
         self.notebook.add(tab, text="运行日志")
         self.log_text = tk.Text(tab, wrap=tk.WORD)
-        self.log_text.configure(bg=COLOR_PANEL, fg=COLOR_TEXT, insertbackground=COLOR_PRIMARY, relief=tk.FLAT, padx=10, pady=8)
+        self.log_text.configure(bg=COLOR_LOG_BG, fg=COLOR_LOG_FG, insertbackground=COLOR_PROGRESS, relief=tk.FLAT, padx=10, pady=8)
         self.log_text.pack(fill=tk.BOTH, expand=True)
 
     def _wire_logger(self):
