@@ -163,7 +163,6 @@ def collect_dashboard_snapshot(app: Application) -> dict[str, Any]:
         "finished_count": finished_count,
         "task_count": len(tasks),
         "bot_enabled": bool(app.bot_token),
-        "clash_enabled": bool(app.clash_config.get("enabled", True)),
         "save_path": app.save_path,
         "config_file": app.config_file,
     }
@@ -179,12 +178,6 @@ def apply_config_changes(app: Application, values: dict[str, Any]) -> list[str]:
     def get_int(name: str, default: int, minimum: int = 0) -> int:
         try:
             return max(int(values.get(name, default)), minimum)
-        except (TypeError, ValueError):
-            return default
-
-    def get_plain_int(value: Any, default: int, minimum: int = 0) -> int:
-        try:
-            return max(int(value), minimum)
         except (TypeError, ValueError):
             return default
 
@@ -220,21 +213,6 @@ def apply_config_changes(app: Application, values: dict[str, Any]) -> list[str]:
             if key == "max_download_task":
                 restart_required.append(key)
 
-    clash_values = values.get("clash")
-    if isinstance(clash_values, dict):
-        for key, value in clash_values.items():
-            if key != "enabled" and str(value or "").strip() == "":
-                continue
-            if key in (
-                "low_speed_kb",
-                "low_speed_seconds",
-                "switch_cooldown_seconds",
-                "timeout_ms",
-            ):
-                value = get_plain_int(value, app.clash_config.get(key, 0), 0)
-            app.clash_config[key] = value
-        app.config["clash"] = dict(app.clash_config)
-
     app.persist_config_file()
     return sorted(set(restart_required))
 
@@ -256,7 +234,6 @@ class NativeDownloaderUI:
         self.config_loaded = False
         self.config_vars_loaded = False
         self.config_vars: dict[str, tk.Variable] = {}
-        self.clash_vars: dict[str, tk.Variable] = {}
         self.task_row_keys: dict[str, Any] = {}
         self.download_cards: dict[str, dict[str, Any]] = {}
 
@@ -407,7 +384,6 @@ class NativeDownloaderUI:
             "tasks": tk.StringVar(value="0"),
             "finished": tk.StringVar(value="0"),
             "bot": tk.StringVar(value="未启用"),
-            "clash": tk.StringVar(value="启用"),
         }
         for title, key in (
             ("总下载速度", "speed"),
@@ -415,7 +391,6 @@ class NativeDownloaderUI:
             ("运行任务", "tasks"),
             ("完成文件", "finished"),
             ("机器人", "bot"),
-            ("Clash", "clash"),
         ):
             card = ttk.Frame(metrics, padding=(12, 8), style="MetricCard.TFrame")
             card.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
@@ -620,34 +595,6 @@ class NativeDownloaderUI:
         for col in (1, 3, 5):
             grid.columnconfigure(col, weight=1)
 
-        clash = ttk.LabelFrame(content, text="Clash 自动切换", padding=(10, 8))
-        clash.pack(fill=tk.X, pady=(8, 0))
-        clash_fields = (
-            ("enabled", "启用"),
-            ("controller", "外部控制地址"),
-            ("secret", "API 密钥"),
-            ("selector", "代理组 selector"),
-            ("low_speed_kb", "低速阈值 KB/s"),
-            ("low_speed_seconds", "低速持续秒"),
-            ("switch_cooldown_seconds", "切换冷却秒"),
-            ("timeout_ms", "测速超时毫秒"),
-        )
-        for index, (key, title) in enumerate(clash_fields):
-            row = index // field_columns
-            col = (index % field_columns) * 2
-            ttk.Label(clash, text=title).grid(row=row, column=col, sticky=tk.W, pady=3)
-            var = tk.StringVar()
-            self.clash_vars[key] = var
-            if key == "enabled":
-                widget = ttk.Combobox(
-                    clash, textvariable=var, values=("true", "false"), state="readonly"
-                )
-            else:
-                widget = ttk.Entry(clash, textvariable=var, show="*" if key == "secret" else "")
-            widget.grid(row=row, column=col + 1, sticky=tk.EW, padx=(8, 16), pady=3)
-        for col in (1, 3, 5):
-            clash.columnconfigure(col, weight=1)
-
         ttk.Label(
             content,
             text="复杂的 chat / media_types / file_formats 仍建议直接编辑 config.yaml。",
@@ -709,11 +656,6 @@ class NativeDownloaderUI:
                 if key == "language":
                     value = self.app.language.name
                 var.set(str(value))
-            for key, var in self.clash_vars.items():
-                value = self.app.clash_config.get(key, "")
-                if isinstance(value, bool):
-                    value = str(value).lower()
-                var.set(str(value))
             self.config_vars_loaded = True
 
         self.root.after(0, load)
@@ -756,7 +698,6 @@ class NativeDownloaderUI:
             f"{snapshot['finished_count']}/{snapshot['download_count']}"
         )
         self.metric_vars["bot"].set("启用" if snapshot["bot_enabled"] else "未启用")
-        self.metric_vars["clash"].set("启用" if snapshot["clash_enabled"] else "关闭")
         state_text = "下载中" if snapshot["download_state"] == "downloading" else "已暂停"
         self.state_label.configure(
             text=state_text
@@ -911,9 +852,6 @@ class NativeDownloaderUI:
         values: dict[str, Any] = {
             key: var.get() for key, var in self.config_vars.items()
         }
-        clash = {key: var.get() for key, var in self.clash_vars.items()}
-        clash["enabled"] = str(clash.get("enabled", "true")).lower() == "true"
-        values["clash"] = clash
         try:
             restart_required = apply_config_changes(self.app, values)
         except Exception as exc:

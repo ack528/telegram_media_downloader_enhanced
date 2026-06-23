@@ -420,11 +420,6 @@ class Application:
             "enabled": True,
             "controller": "http://127.0.0.1:9097",
             "secret": "999",
-            "low_speed_kb": 100,
-            "low_speed_seconds": 60,
-            "switch_cooldown_seconds": 300,
-            "timeout_ms": 5000,
-            "test_url": "https://www.gstatic.com/generate_204",
         }
         self.web_host: str = "0.0.0.0"
         self.web_port: int = 5000

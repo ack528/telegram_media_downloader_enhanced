@@ -22,97 +22,13 @@ class FakeResponse:
 
 
 class ClashControllerTestCase(unittest.TestCase):
-    def test_switch_to_fast_us_node(self):
-        calls = []
-
-        def fake_request(method, url, **kwargs):
-            calls.append((method, url, kwargs))
-            if method == "PATCH" and url.endswith("/configs"):
-                self.assertEqual(kwargs["json"], {"mode": "rule"})
-                return FakeResponse()
-            if method == "GET" and url.endswith("/proxies"):
-                return FakeResponse(
-                    {
-                        "proxies": {
-                            "Proxy": {
-                                "type": "Selector",
-                                "all": [
-                                    "HK 01",
-                                    "US slow",
-                                    "\u7f8e\u56fd fast",
-                                ]
-                            }
-                        }
-                    }
-                )
-            if method == "GET" and "US%20slow" in url:
-                return FakeResponse({"delay": 250})
-            if method == "GET" and "%E7%BE%8E%E5%9B%BD%20fast" in url:
-                return FakeResponse({"delay": 80})
-            if method == "PUT" and url.endswith("/proxies/Proxy"):
-                self.assertEqual(kwargs["json"], {"name": "\u7f8e\u56fd fast"})
-                return FakeResponse()
-            self.fail(f"unexpected request: {method} {url}")
-
-        with mock.patch("module.clash_controller.requests.request", fake_request):
-            result = ClashController(
-                {
-                    "controller": "127.0.0.1:9097",
-                    "secret": "999",
-                    "timeout_ms": 1000,
-                }
-            ).switch_to_fast_us_node()
-
-        self.assertEqual(result.selector, "Proxy")
-        self.assertEqual(result.node, "\u7f8e\u56fd fast")
-        self.assertEqual(result.delay, 80)
-        self.assertEqual(calls[-1][0], "PUT")
-
     def test_disabled_controller_does_nothing(self):
         controller = ClashController({"enabled": False})
 
         with mock.patch("module.clash_controller.requests.request") as request:
-            self.assertIsNone(controller.switch_to_fast_us_node())
+            self.assertIsNone(controller.get_traffic_speed())
 
         request.assert_not_called()
-
-    def test_find_selector_prefers_active_rule_provider_before_global(self):
-        controller = ClashController({})
-        selector, candidates = controller._find_selector(
-            {
-                "GLOBAL": {"all": ["DIRECT", "\u7f8e\u56fd global"]},
-                "manual-airport": {"all": ["HK 01", "\u7f8e\u56fd real"]},
-                "telegram": {"all": ["manual-airport", "DIRECT"], "now": "manual-airport"},
-            }
-        )
-
-        self.assertEqual(selector, "manual-airport")
-        self.assertEqual(candidates, ["HK 01", "\u7f8e\u56fd real"])
-
-    def test_find_selector_prefers_first_manual_selector_group(self):
-        controller = ClashController({})
-        selector, candidates = controller._find_selector(
-            {
-                "\u767d\u5ad6\u673a\u573a": {
-                    "type": "Selector",
-                    "all": ["HK 01", "\U0001f1fa\U0001f1f8 US 01"],
-                    "now": "\U0001f1fa\U0001f1f8 US 01",
-                },
-                "\u81ea\u52a8\u9009\u62e9": {
-                    "type": "URLTest",
-                    "all": ["\U0001f1fa\U0001f1f8 US 02"],
-                    "now": "\U0001f1fa\U0001f1f8 US 02",
-                },
-                "\u6545\u969c\u8f6c\u79fb": {
-                    "type": "Fallback",
-                    "all": ["\U0001f1fa\U0001f1f8 US 03"],
-                    "now": "\U0001f1fa\U0001f1f8 US 03",
-                },
-            }
-        )
-
-        self.assertEqual(selector, "\u767d\u5ad6\u673a\u573a")
-        self.assertEqual(candidates, ["HK 01", "\U0001f1fa\U0001f1f8 US 01"])
 
     def test_get_traffic_speed(self):
         def fake_request(method, url, **kwargs):

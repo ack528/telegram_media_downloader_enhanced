@@ -29,7 +29,6 @@ class NativeUiTestCase(unittest.TestCase):
             "media_types": ["video"],
             "file_formats": {"video": ["all"]},
             "chat": [{"chat_id": "chat", "last_read_message_id": 1}],
-            "clash": dict(self.app.clash_config),
         }
         self.app.app_data = {}
 
@@ -72,18 +71,12 @@ class NativeUiTestCase(unittest.TestCase):
                 "save_path": os.path.join(self.temp_dir.name, "downloads"),
                 "max_download_task": "8",
                 "scan_prefetch_limit": "4",
-                "clash": {
-                    "enabled": True,
-                    "controller": "http://127.0.0.1:9097",
-                    "low_speed_kb": "150",
-                },
             },
         )
 
         self.assertIn("max_download_task", restart_required)
         self.assertEqual(self.app.max_download_task, 8)
         self.assertEqual(self.app.scan_prefetch_limit, 4)
-        self.assertEqual(self.app.clash_config["low_speed_kb"], 150)
         self.assertTrue(os.path.exists(self.app.config_file))
 
         with open(self.app.config_file, encoding="utf-8") as config_file:
@@ -96,14 +89,11 @@ class NativeUiTestCase(unittest.TestCase):
         self.app.save_path = os.path.join(self.temp_dir.name, "existing")
         self.app.max_download_task = 5
         self.app.log_level = "INFO"
-        self.app.clash_config["controller"] = "http://127.0.0.1:9097"
-        self.app.clash_config["low_speed_kb"] = 100
         self.app.config.update(
             {
                 "save_path": self.app.save_path,
                 "max_download_task": self.app.max_download_task,
                 "log_level": self.app.log_level,
-                "clash": dict(self.app.clash_config),
             }
         )
 
@@ -113,19 +103,12 @@ class NativeUiTestCase(unittest.TestCase):
                 "save_path": "",
                 "max_download_task": "",
                 "log_level": "",
-                "clash": {
-                    "controller": "",
-                    "low_speed_kb": "",
-                    "enabled": True,
-                },
             },
         )
 
         self.assertEqual(self.app.save_path, os.path.join(self.temp_dir.name, "existing"))
         self.assertEqual(self.app.max_download_task, 5)
         self.assertEqual(self.app.log_level, "INFO")
-        self.assertEqual(self.app.clash_config["controller"], "http://127.0.0.1:9097")
-        self.assertEqual(self.app.clash_config["low_speed_kb"], 100)
 
     def test_bind_core_event_loop_in_worker_thread(self):
         class Core:

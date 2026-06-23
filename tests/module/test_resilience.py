@@ -1,14 +1,9 @@
-import asyncio
-import os
-import tempfile
-import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
 
 from module.app import DownloadStatus, TaskNode
 import module.download_stat as download_stat
-from module.network_watchdog import bump_network_epoch
 from module.pyrogram_extension import (
     fetch_message,
     record_download_status,
@@ -80,154 +75,6 @@ class ResilienceTestCase(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(status, DownloadStatus.FailedDownload)
         self.assertIsNone(file_name)
-
-    async def test_network_failure_request_switches_clash_without_active_download(self):
-        import media_downloader
-
-        old_is_running = media_downloader.app.is_running
-        old_clash_config = media_downloader.app.clash_config
-        media_downloader.app.is_running = True
-        media_downloader.app.clash_config = {
-            "enabled": True,
-            "switch_cooldown_seconds": 0,
-        }
-        media_downloader._clash_switch_event.clear()
-        media_downloader._clash_switch_reason = None
-
-        switch_calls = 0
-
-        async def fake_switch():
-            nonlocal switch_calls
-            switch_calls += 1
-            media_downloader.app.is_running = False
-            return SimpleNamespace(selector="Proxy", node="US Node", delay=10)
-
-        try:
-            with mock.patch("media_downloader.LOW_SPEED_MONITOR_INTERVAL", 0.01):
-                with mock.patch("media_downloader._switch_clash_node", fake_switch):
-                    with mock.patch("media_downloader.get_active_download_count", return_value=0):
-                        with mock.patch("media_downloader.get_total_download_speed", return_value=0):
-                            task = asyncio.create_task(
-                                media_downloader.monitor_low_download_speed()
-                            )
-                            media_downloader.request_clash_switch("fetch failed")
-                            await asyncio.wait_for(task, timeout=1)
-        finally:
-            media_downloader._clash_switch_event.clear()
-            media_downloader._clash_switch_reason = None
-            media_downloader.app.clash_config = old_clash_config
-            media_downloader.app.is_running = old_is_running
-
-        self.assertEqual(switch_calls, 1)
-
-    async def test_single_fetch_failure_does_not_switch_clash_when_downloads_are_healthy(self):
-        import media_downloader
-
-        old_clash_config = media_downloader.app.clash_config
-        media_downloader.app.clash_config = {
-            "enabled": True,
-            "low_speed_kb": 100,
-        }
-        media_downloader._clash_switch_event.clear()
-        media_downloader._clash_switch_reason = None
-
-        try:
-            with mock.patch("media_downloader.get_active_download_count", return_value=4):
-                with mock.patch("media_downloader.get_total_download_speed", return_value=2 * 1024 * 1024):
-                    media_downloader.request_clash_switch("message 1709 fetch failed")
-        finally:
-            media_downloader.app.clash_config = old_clash_config
-
-        self.assertFalse(media_downloader._clash_switch_event.is_set())
-        self.assertIsNone(media_downloader._clash_switch_reason)
-
-    async def test_stale_speed_does_not_block_clash_switch_request(self):
-        import media_downloader
-
-        old_clash_config = media_downloader.app.clash_config
-        media_downloader.app.clash_config = {
-            "enabled": True,
-            "low_speed_kb": 100,
-        }
-        media_downloader._clash_switch_event.clear()
-        media_downloader._clash_switch_reason = None
-        download_stat._download_result = {
-            "chat": {
-                1: {
-                    "down_byte": 10,
-                    "total_size": 100,
-                    "download_speed": 4 * 1024 * 1024,
-                    "end_time": time.time() - download_stat.STALE_SPEED_SECONDS - 1,
-                }
-            }
-        }
-        download_stat._total_download_speed = 4 * 1024 * 1024
-        download_stat._last_download_time = (
-            time.time() - download_stat.STALE_SPEED_SECONDS - 1
-        )
-
-        try:
-            media_downloader.request_clash_switch("message 1849 download stalled")
-        finally:
-            media_downloader.app.clash_config = old_clash_config
-
-        self.assertTrue(media_downloader._clash_switch_event.is_set())
-        self.assertEqual(
-            media_downloader._clash_switch_reason,
-            "message 1849 download stalled",
-        )
-
-    async def test_download_stream_restarts_quickly_after_network_route_change(self):
-        import media_downloader
-
-        class StuckStream:
-            def __init__(self):
-                self.closed = False
-
-            async def __anext__(self):
-                await asyncio.sleep(10)
-                return b""
-
-            async def aclose(self):
-                self.closed = True
-
-        class FakeClient:
-            def __init__(self):
-                self.stream = StuckStream()
-
-            def get_file(self, *args, **kwargs):
-                return self.stream
-
-        client = FakeClient()
-        media = SimpleNamespace(file_id="fake")
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_file_name = os.path.join(temp_dir, "file.mp4")
-
-            async def switch_route():
-                await asyncio.sleep(0.03)
-                bump_network_epoch()
-
-            route_task = asyncio.create_task(switch_route())
-            try:
-                with mock.patch("media_downloader.NETWORK_ROUTE_POLL_SECONDS", 0.01):
-                    with mock.patch("media_downloader.FileId.decode", return_value=object()):
-                        with self.assertRaisesRegex(IOError, "network route changed"):
-                            await asyncio.wait_for(
-                                media_downloader._download_media_with_resume(
-                                    client,
-                                    media,
-                                    temp_file_name,
-                                    0,
-                                    None,
-                                    (),
-                                ),
-                                timeout=1,
-                            )
-            finally:
-                await route_task
-
-        self.assertTrue(client.stream.closed)
 
 
 if __name__ == "__main__":

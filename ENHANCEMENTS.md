@@ -27,8 +27,6 @@ as a packaged executable.
   refreshed Telegram message references.
 - Restart stalled Telegram file streams with resumable retry when no new chunk
   arrives before `download_stall_timeout`.
-- Monitor active download speed and switch Clash to the fastest non-timeout US
-  node when speed stays below the configured threshold.
 - Package Windows releases as a single `tdl.exe`, so updates only require
   replacing that executable while keeping `config.yaml`, `data.yaml`, `sessions`,
   `temp`, and `log`.

@@ -70,7 +70,6 @@ if (-not $SkipTests) {
         "module\download_stat.py",
         "module\pyrogram_extension.py",
         "module\clash_controller.py",
-        "module\network_watchdog.py",
         "module\get_chat_history_v2.py",
         "module\native_ui.py",
         "module\filter.py",
