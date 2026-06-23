@@ -29,5 +29,9 @@ clash:
   enabled: true
   controller: http://127.0.0.1:9097
   secret: "999"
+proxy:
+  scheme: socks5
+  hostname: 127.0.0.1
+  port: 7897
 # in linux please use /
 # save_path: E:\github\telegram_media_downloader
