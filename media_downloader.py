@@ -91,6 +91,8 @@ DOWNLOAD_RETRY_COUNT = 5
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 LOW_SPEED_MONITOR_INTERVAL = 5
 DOWNLOAD_HEARTBEAT_INTERVAL = 60
+NETWORK_ROUTE_POLL_SECONDS = 2
+FILE_STREAM_CLOSE_TIMEOUT = 5
 _clash_switch_event = asyncio.Event()
 _clash_switch_reason: Optional[str] = None
 
@@ -559,6 +561,7 @@ async def _download_media_with_resume(
 
     try:
         with open(temp_download_path, "ab") as temp_file:
+            last_progress_time = time.time()
             while True:
                 if get_network_epoch() != network_epoch:
                     raise IOError("network route changed, restarting resumable download")
@@ -566,19 +569,35 @@ async def _download_media_with_resume(
                 try:
                     chunk = await asyncio.wait_for(
                         file_stream.__anext__(),
-                        timeout=app.download_stall_timeout,
+                        timeout=min(
+                            NETWORK_ROUTE_POLL_SECONDS,
+                            max(app.download_stall_timeout, 1),
+                        ),
                     )
                 except StopAsyncIteration:
                     break
                 except asyncio.TimeoutError as exc:
-                    raise TimeoutError(
-                        f"download stalled for {app.download_stall_timeout} seconds"
-                    ) from exc
+                    if get_network_epoch() != network_epoch:
+                        raise IOError(
+                            "network route changed, restarting resumable download"
+                        ) from exc
+                    if time.time() - last_progress_time >= app.download_stall_timeout:
+                        raise TimeoutError(
+                            f"download stalled for {app.download_stall_timeout} seconds"
+                        ) from exc
+                    continue
 
                 if chunk:
                     temp_file.write(chunk)
+                    last_progress_time = time.time()
     finally:
-        await file_stream.aclose()
+        try:
+            await asyncio.wait_for(
+                file_stream.aclose(),
+                timeout=FILE_STREAM_CLOSE_TIMEOUT,
+            )
+        except Exception as exc:
+            logger.debug("Timed out closing Telegram file stream: {}", exc)
 
     if media_size:
         downloaded_size = os.path.getsize(temp_download_path)

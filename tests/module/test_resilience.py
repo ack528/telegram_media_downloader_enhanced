@@ -1,4 +1,6 @@
 import asyncio
+import os
+import tempfile
 import time
 import unittest
 from types import SimpleNamespace
@@ -6,6 +8,7 @@ from unittest import mock
 
 from module.app import DownloadStatus, TaskNode
 import module.download_stat as download_stat
+from module.network_watchdog import bump_network_epoch
 from module.pyrogram_extension import (
     fetch_message,
     record_download_status,
@@ -173,6 +176,58 @@ class ResilienceTestCase(unittest.IsolatedAsyncioTestCase):
             media_downloader._clash_switch_reason,
             "message 1849 download stalled",
         )
+
+    async def test_download_stream_restarts_quickly_after_network_route_change(self):
+        import media_downloader
+
+        class StuckStream:
+            def __init__(self):
+                self.closed = False
+
+            async def __anext__(self):
+                await asyncio.sleep(10)
+                return b""
+
+            async def aclose(self):
+                self.closed = True
+
+        class FakeClient:
+            def __init__(self):
+                self.stream = StuckStream()
+
+            def get_file(self, *args, **kwargs):
+                return self.stream
+
+        client = FakeClient()
+        media = SimpleNamespace(file_id="fake")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_file_name = os.path.join(temp_dir, "file.mp4")
+
+            async def switch_route():
+                await asyncio.sleep(0.03)
+                bump_network_epoch()
+
+            route_task = asyncio.create_task(switch_route())
+            try:
+                with mock.patch("media_downloader.NETWORK_ROUTE_POLL_SECONDS", 0.01):
+                    with mock.patch("media_downloader.FileId.decode", return_value=object()):
+                        with self.assertRaisesRegex(IOError, "network route changed"):
+                            await asyncio.wait_for(
+                                media_downloader._download_media_with_resume(
+                                    client,
+                                    media,
+                                    temp_file_name,
+                                    0,
+                                    None,
+                                    (),
+                                ),
+                                timeout=1,
+                            )
+            finally:
+                await route_task
+
+        self.assertTrue(client.stream.closed)
 
 
 if __name__ == "__main__":
