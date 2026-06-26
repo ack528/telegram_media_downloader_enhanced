@@ -22,11 +22,8 @@ media_types:
 - voice
 - video_note
 download_stall_timeout: 90
-zero_speed_reconnect_seconds: 180
-client_reconnect_cooldown: 300
 history_fetch_timeout: 60
 history_fetch_retries: 3
-history_retry_delay: 30
 scan_prefetch_limit: 5
 clash:
   enabled: true
