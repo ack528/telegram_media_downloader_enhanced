@@ -76,6 +76,44 @@ class ResilienceTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, DownloadStatus.FailedDownload)
         self.assertIsNone(file_name)
 
+    async def test_download_chat_task_retries_history_failure(self):
+        import media_downloader
+        from module.app import ChatDownloadConfig
+
+        calls = 0
+
+        def flaky_history(*_args, **_kwargs):
+            nonlocal calls
+            calls += 1
+
+            async def iterator():
+                if calls == 1:
+                    raise TimeoutError("history timeout")
+                if False:
+                    yield None
+
+            return iterator()
+
+        async def no_restart(*_args, **_kwargs):
+            return True
+
+        async def no_sleep(*_args, **_kwargs):
+            return None
+
+        node = TaskNode(chat_id=20)
+        config = ChatDownloadConfig()
+        media_downloader.app.is_running = True
+        media_downloader.app.history_retry_delay = 0
+
+        with mock.patch("media_downloader.get_chat_history_v2", flaky_history), mock.patch(
+            "media_downloader.restart_telegram_client", no_restart
+        ), mock.patch("media_downloader.asyncio.sleep", no_sleep):
+            await media_downloader.download_chat_task(FetchClient(), config, node)
+
+        self.assertEqual(calls, 2)
+        self.assertTrue(config.need_check)
+        self.assertTrue(node.is_running)
+
 
 if __name__ == "__main__":
     unittest.main()

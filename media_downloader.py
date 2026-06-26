@@ -90,6 +90,9 @@ DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 DOWNLOAD_HEARTBEAT_INTERVAL = 60
 FILE_STREAM_CLOSE_TIMEOUT = 5
 
+_client_restart_lock = asyncio.Lock()
+_last_client_restart_time = 0.0
+
 logging.getLogger("pyrogram.session.session").addFilter(LogFilter())
 logging.getLogger("pyrogram.client").addFilter(LogFilter())
 logging.getLogger("pyrogram").addFilter(LogFilter())
@@ -841,7 +844,9 @@ def _check_config() -> bool:
             "Runtime options: version={}, language={}, bot_enabled={}, "
             "max_download_task={}, max_concurrent_transmissions={}, "
             "download_stall_timeout={}s, history_fetch_timeout={}s, "
-            "history_fetch_retries={}, scan_prefetch_limit={}",
+            "history_fetch_retries={}, history_retry_delay={}s, "
+            "zero_speed_reconnect_seconds={}s, client_reconnect_cooldown={}s, "
+            "scan_prefetch_limit={}",
             __import__("utils").__version__,
             app.language.name,
             bool(app.bot_token),
@@ -850,6 +855,9 @@ def _check_config() -> bool:
             app.download_stall_timeout,
             app.history_fetch_timeout,
             app.history_fetch_retries,
+            app.history_retry_delay,
+            app.zero_speed_reconnect_seconds,
+            app.client_reconnect_cooldown,
             app.scan_prefetch_limit,
         )
     except Exception as e:
@@ -915,17 +923,6 @@ async def download_chat_task(
     node: TaskNode,
 ):
     """Download all task"""
-    messages_iter = get_chat_history_v2(
-        client,
-        node.chat_id,
-        limit=node.limit,
-        max_id=node.end_offset_id,
-        offset_id=chat_download_config.last_read_message_id,
-        reverse=True,
-        request_timeout=app.history_fetch_timeout,
-        retry_count=app.history_fetch_retries,
-    )
-
     chat_download_config.node = node
 
     if chat_download_config.ids_to_retry:
@@ -957,49 +954,65 @@ async def download_chat_task(
         return
 
     queued_before_history = node.total_task
-    try:
-        async for message in messages_iter:  # type: ignore
-            meta_data = MetaData()
-
-            caption = message.caption
-            if caption:
-                caption = validate_title(caption)
-                app.set_caption_name(node.chat_id, message.media_group_id, caption)
-                app.set_caption_entities(
-                    node.chat_id, message.media_group_id, message.caption_entities
-                )
-            else:
-                caption = app.get_caption_name(node.chat_id, message.media_group_id)
-            set_meta_data(meta_data, message, caption)
-
-            if app.need_skip_message(chat_download_config, message.id):
-                continue
-
-            if app.exec_filter(chat_download_config, meta_data):
-                await wait_for_scan_prefetch_window(chat_download_config, node)
-                await add_download_task(message, node)
-            else:
-                node.download_status[message.id] = DownloadStatus.SkipDownload
-                if message.media_group_id:
-                    await upload_telegram_chat(
-                        client,
-                        node.upload_user,
-                        app,
-                        node,
-                        message,
-                        DownloadStatus.SkipDownload,
-                    )
-    except Exception as exc:
-        chat_download_config.need_check = True
-        node.is_running = False
-        logger.exception(
-            "Read chat history failed: task_id={}, chat_id={}, "
-            "last_read_message_id={}, error={}",
-            node.task_id,
+    while app.is_running and not node.is_stop_transmission:
+        messages_iter = get_chat_history_v2(
+            client,
             node.chat_id,
-            chat_download_config.last_read_message_id,
-            exc,
+            limit=node.limit,
+            max_id=node.end_offset_id,
+            offset_id=chat_download_config.last_read_message_id,
+            reverse=True,
+            request_timeout=app.history_fetch_timeout,
+            retry_count=app.history_fetch_retries,
         )
+        try:
+            async for message in messages_iter:  # type: ignore
+                meta_data = MetaData()
+
+                caption = message.caption
+                if caption:
+                    caption = validate_title(caption)
+                    app.set_caption_name(node.chat_id, message.media_group_id, caption)
+                    app.set_caption_entities(
+                        node.chat_id, message.media_group_id, message.caption_entities
+                    )
+                else:
+                    caption = app.get_caption_name(node.chat_id, message.media_group_id)
+                set_meta_data(meta_data, message, caption)
+
+                if app.need_skip_message(chat_download_config, message.id):
+                    continue
+
+                if app.exec_filter(chat_download_config, meta_data):
+                    await wait_for_scan_prefetch_window(chat_download_config, node)
+                    await add_download_task(message, node)
+                else:
+                    node.download_status[message.id] = DownloadStatus.SkipDownload
+                    if message.media_group_id:
+                        await upload_telegram_chat(
+                            client,
+                            node.upload_user,
+                            app,
+                            node,
+                            message,
+                            DownloadStatus.SkipDownload,
+                        )
+            break
+        except Exception as exc:
+            chat_download_config.need_check = False
+            node.is_running = True
+            logger.exception(
+                "Read chat history failed and will retry: task_id={}, chat_id={}, "
+                "last_read_message_id={}, retry_delay={}s, error={}",
+                node.task_id,
+                node.chat_id,
+                chat_download_config.last_read_message_id,
+                app.history_retry_delay,
+                exc,
+            )
+            await restart_telegram_client(client, "history read failure")
+            await asyncio.sleep(app.history_retry_delay)
+    else:
         return
 
     chat_download_config.need_check = True
@@ -1132,6 +1145,74 @@ async def log_download_heartbeat():
         )
 
 
+async def restart_telegram_client(client: pyrogram.Client, reason: str) -> bool:
+    """Restart the Telegram client when the underlying connection is half-dead."""
+    global _last_client_restart_time
+
+    if _client_restart_lock.locked():
+        return False
+
+    async with _client_restart_lock:
+        now = time.time()
+        cooldown = max(0, int(getattr(app, "client_reconnect_cooldown", 300) or 0))
+        if now - _last_client_restart_time < cooldown:
+            return False
+
+        logger.warning("Restarting Telegram client: reason={}", reason)
+        _last_client_restart_time = now
+        try:
+            await asyncio.wait_for(client.stop(), timeout=30)
+        except Exception as exc:
+            logger.warning("Telegram client stop during restart failed: {}", exc)
+
+        await asyncio.sleep(5)
+
+        try:
+            await asyncio.wait_for(client.start(), timeout=app.start_timeout + 30)
+            set_max_concurrent_transmissions(client, app.max_concurrent_transmissions)
+            logger.warning("Telegram client restart finished")
+            return True
+        except Exception as exc:
+            logger.exception("Telegram client restart failed: {}", exc)
+            return False
+
+
+async def monitor_zero_speed_downloads(client: pyrogram.Client):
+    """Reconnect Telegram when downloads stay active but no progress is reported."""
+    zero_speed_since = None
+    while app.is_running:
+        await asyncio.sleep(30)
+        active_count = get_active_download_count()
+        queue_size = queue.qsize()
+        speed = get_total_download_speed()
+
+        if active_count <= 0 or speed > 0:
+            zero_speed_since = None
+            continue
+
+        now = time.time()
+        if zero_speed_since is None:
+            zero_speed_since = now
+
+        stalled_for = now - zero_speed_since
+        threshold = max(
+            int(getattr(app, "zero_speed_reconnect_seconds", 180) or 0),
+            app.download_stall_timeout + 30,
+        )
+        if stalled_for < threshold:
+            continue
+
+        logger.warning(
+            "Download watchdog detected zero speed: active={}, queue={}, "
+            "stalled_for={:.0f}s; restarting Telegram client",
+            active_count,
+            queue_size,
+            stalled_for,
+        )
+        restarted = await restart_telegram_client(client, "zero download speed")
+        zero_speed_since = time.time() if restarted else now
+
+
 def _exec_loop():
     """Exec loop"""
 
@@ -1183,6 +1264,7 @@ def main():
         app.loop.create_task(download_all_chat(client))
         logger.bind(console=True).success("软件启动完成，下载工作线程已就绪。")
         tasks.append(app.loop.create_task(log_download_heartbeat()))
+        tasks.append(app.loop.create_task(monitor_zero_speed_downloads(client)))
         for _ in range(app.max_download_task):
             task = app.loop.create_task(worker(client))
             tasks.append(task)

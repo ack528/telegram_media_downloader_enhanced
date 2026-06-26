@@ -414,6 +414,9 @@ class Application:
         self.caption_entities_dict: dict = {}
         self.max_concurrent_transmissions: int = 1
         self.download_stall_timeout: int = 90
+        self.zero_speed_reconnect_seconds: int = 180
+        self.client_reconnect_cooldown: int = 300
+        self.history_retry_delay: int = 30
         self.history_fetch_timeout: int = 60
         self.history_fetch_retries: int = 3
         self.clash_config: dict = {
@@ -601,6 +604,21 @@ class Application:
         )
         self.download_stall_timeout = get_config(
             _config, "download_stall_timeout", self.download_stall_timeout, int
+        )
+        self.zero_speed_reconnect_seconds = get_config(
+            _config,
+            "zero_speed_reconnect_seconds",
+            self.zero_speed_reconnect_seconds,
+            int,
+        )
+        self.client_reconnect_cooldown = get_config(
+            _config,
+            "client_reconnect_cooldown",
+            self.client_reconnect_cooldown,
+            int,
+        )
+        self.history_retry_delay = get_config(
+            _config, "history_retry_delay", self.history_retry_delay, int
         )
         self.history_fetch_timeout = get_config(
             _config, "history_fetch_timeout", self.history_fetch_timeout, int
