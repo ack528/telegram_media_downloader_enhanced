@@ -3,13 +3,16 @@ from distutils.core import setup
 from utils import __version__
 
 setup(
-    name="telegram-media-downloader",
+    name="telegram-media-downloader-enhanced",
     version=__version__,
-    author="tangyoha",
-    author_email="tangyoha@outlook.com",
-    description="A simple script to download media from telegram",
-    url="https://github.com/tangyoha/telegram_media_downloader",
-    download_url="https://github.com/tangyoha/telegram_media_downloader/releases/latest",
+    author="ack528",
+    author_email="82737603+ack528@users.noreply.github.com",
+    description="Enhanced Telegram media downloader for reliable long-running tasks",
+    url="https://github.com/ack528/telegram_media_downloader_enhanced",
+    download_url=(
+        "https://github.com/ack528/telegram_media_downloader_enhanced/"
+        "releases/latest"
+    ),
     py_modules=["media_downloader"],
     classifiers=[
         "Development Status :: 5 - Production/Stable",
@@ -34,9 +37,14 @@ setup(
         "Topic :: Software Development :: Libraries :: Python Modules",
     ],
     project_urls={
-        "Tracker": "https://github.com/tangyoha/telegram_media_downloader/issues",
-        "Community": "https://t.me/TeegramMediaDownload",
-        "Source": "https://github.com/tangyoha/telegram_media_downloader",
+        "Tracker": (
+            "https://github.com/ack528/telegram_media_downloader_enhanced/issues"
+        ),
+        "Community": (
+            "https://github.com/ack528/telegram_media_downloader_enhanced/"
+            "discussions"
+        ),
+        "Source": "https://github.com/ack528/telegram_media_downloader_enhanced",
     },
     python_requires="~=3.7",
 )

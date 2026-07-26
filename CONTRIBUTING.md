@@ -1,17 +1,17 @@
 ## Contributing
 
-First off, thank you for considering contributing to Telegram Media Downloader. It's people like you that make telegram-media-downloader such a great tool.
+First off, thank you for considering contributing to Telegram Media Downloader Enhanced. It's people like you that make telegram-media-downloader-enhanced such a great tool.
 Please take a moment to review this document in order to make the contribution process easy and effective for everyone involved.
 
 ### Where do I go from here?
 
-If you've noticed a bug or have a feature request, [make one](https://github.com/tangyoha/telegram_media_downloader/issues)! It's generally best if you get confirmation of your bug or approval for your feature request this way before starting to code.
+If you've noticed a bug or have a feature request, [make one](https://github.com/ack528/telegram_media_downloader_enhanced/issues)! It's generally best if you get confirmation of your bug or approval for your feature request this way before starting to code.
 
-If you have a general question about telegram-media-downloader, you can ask it on [Discussion](https://github.com/tangyoha/telegram_media_downloader/discussions) under `Q&A`  category and any ideas/suggestions goes under `Ideas` category, the issue tracker is only for bugs and feature requests.
+If you have a general question about telegram-media-downloader-enhanced, you can ask it on [Discussion](https://github.com/ack528/telegram_media_downloader_enhanced/discussions) under `Q&A` category and any ideas/suggestions goes under `Ideas` category, the issue tracker is only for bugs and feature requests.
 
 ### Fork & create a branch
 
-If this is something you think you can fix, then [fork telegram-media-downloader](https://help.github.com/articles/fork-a-repo) and create a branch with a descriptive name.
+If this is something you think you can fix, then [fork telegram-media-downloader-enhanced](https://help.github.com/articles/fork-a-repo) and create a branch with a descriptive name.
 
 A good branch name would be (where issue #52 is the ticket you're working on):
 
@@ -32,7 +32,7 @@ If you never created a pull request before, welcome [Here is a great tutorial](h
    # Install dependencies
    make dev_install
    # Assign the original repo to a remote called "upstream"
-   git remote add upstream https://github.com/Dineshkkarthik/<repo-name>
+   git remote add upstream https://github.com/ack528/telegram_media_downloader_enhanced
 ```
 
 2. If you cloned a while ago, get the latest changes from upstream:
@@ -62,17 +62,17 @@ If you never created a pull request before, welcome [Here is a great tutorial](h
 
 #### Python style
 
-Please follow these coding standards when writing code for inclusion in telegram-media-downloader.
+Please follow these coding standards when writing code for inclusion in telegram-media-downloader-enhanced.
 
-Telegram-media-downloader  follows the [PEP8](https://www.python.org/dev/peps/pep-0008/) standard and uses [Black](https://black.readthedocs.io/en/stable/) and [Pylint](https://pylint.pycqa.org/en/latest/) to ensure a consistent code format throughout the project.
+Telegram-media-downloader-enhanced follows the [PEP8](https://www.python.org/dev/peps/pep-0008/) standard and uses [Black](https://black.readthedocs.io/en/stable/) and [Pylint](https://pylint.pycqa.org/en/latest/) to ensure a consistent code format throughout the project.
 
-[Continuous Integration](https://github.com/tangyoha/telegram_media_downloader/actions)  using GitHub Actions will run those tools and report any stylistic errors in your code. Therefore, it is helpful before submitting code to run the check yourself:
+[Continuous Integration](https://github.com/ack528/telegram_media_downloader_enhanced/actions) using GitHub Actions will run those tools and report any stylistic errors in your code. Therefore, it is helpful before submitting code to run the check yourself:
 ```sh
 black media_downloader.py utils
 ```
 to auto-format your code. Additionally, many editors have plugins that will apply  `black`  as you edit files.
 
-Writing good code is not just about what you write. It is also about  _how_  you write it. During  [Continuous Integration](https://github.com/tangyoha/telegram_media_downloader/actions)  testing, several tools will be run to check your code for stylistic errors. Generating any warnings will cause the test to fail. Thus, good style is a requirement for submitting code to telegram-media-downloader.
+Writing good code is not just about what you write. It is also about _how_ you write it. During [Continuous Integration](https://github.com/ack528/telegram_media_downloader_enhanced/actions) testing, several tools will be run to check your code for stylistic errors. Generating any warnings will cause the test to fail. Thus, good style is a requirement for submitting code to telegram-media-downloader-enhanced.
 
 This is already added in the repo to help contributors verify their changes before contributing them to the project:
 ```sh
@@ -81,7 +81,7 @@ make style_check
 
 #### Type hints
 
-Telegram-media-downloader strongly encourages the use of  [**PEP 484**](https://www.python.org/dev/peps/pep-0484)  style type hints. New development should contain type hints and pull requests to annotate existing code are accepted as well!
+Telegram-media-downloader-enhanced strongly encourages the use of [**PEP 484**](https://www.python.org/dev/peps/pep-0484) style type hints. New development should contain type hints and pull requests to annotate existing code are accepted as well!
 
 Types imports should follow the  `from  typing  import  ...`  convention. So rather than
 ```py
@@ -107,7 +107,7 @@ maybe_primes: List[Optional[int]] = []
 
 #### Validating type hints
 
-telegram-media-downloader uses  [mypy](http://mypy-lang.org/)  to statically analyze the code base and type hints. After making any change you can ensure your type hints are correct by running
+telegram-media-downloader-enhanced uses [mypy](http://mypy-lang.org/) to statically analyze the code base and type hints. After making any change you can ensure your type hints are correct by running
 ```sh
 make static_type_check
 ```
@@ -157,7 +157,7 @@ Some standards regarding docstrings exist, which make them easier to read, and a
 
 ### Commit Message
 
-telegram-media-downloader uses a convention for commit message prefixes and layout. Here are some common prefixes along with general guidelines for when to use them:
+telegram-media-downloader-enhanced uses a convention for commit message prefixes and layout. Here are some common prefixes along with general guidelines for when to use them:
 ```
 <prefix>: <subject>
 <-- OPTIONAL -->
@@ -196,4 +196,4 @@ Explain the motivation for the change in the commit message body. This commit me
 
 ### Code of Conduct
 
-As a contributor, you can help us keep the  community open and inclusive. Please read and follow our  [Code of Conduct](https://github.com/tangyoha/telegram_media_downloader/blob/master/CODE_OF_CONDUCT.md).
+As a contributor, you can help us keep the community open and inclusive. Please read and follow our [Code of Conduct](https://github.com/ack528/telegram_media_downloader_enhanced/blob/master/CODE_OF_CONDUCT.md).

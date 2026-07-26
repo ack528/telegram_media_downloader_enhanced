@@ -2,7 +2,7 @@ version: "3.3"
 
 services:
   telegram_media_downloader:
-    image: tangyoha/telegram_media_downloader:latest
+    image: ack528/telegram_media_downloader_enhanced:latest
     build: .
     ports:
       # Here is what you need to edit

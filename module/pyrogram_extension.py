@@ -476,7 +476,7 @@ async def _upload_signal_message(
         # Download thumbnail
         thumbnail_file = await download_thumbnail(client, app.temp_save_path, message)
         try:
-            # TODO(tangyoha): add more log when upload video more than 2000MB failed
+            # TODO: add more log when upload video more than 2000MB failed
             # Send video to the destination chat
             if node.reply_to_message:
                 await node.reply_to_message.reply_video(

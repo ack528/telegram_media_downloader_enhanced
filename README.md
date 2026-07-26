@@ -1,375 +1,123 @@
+# Telegram Media Downloader Enhanced
 
-<h1 align="center">Telegram Media Downloader Enhanced</h1>
+面向 Windows 长时间运行场景的 Telegram 媒体下载增强版。项目重点解决大批量任务中的断点恢复、机器人任务管理、临时文件堆积、断网保护和单文件 EXE 部署问题。
 
-<p align="center">
-<a href="https://deepwiki.com/tangyoha/telegram_media_downloader"><img alt="DeepWiki" src="https://img.shields.io/badge/DeepWiki-Documentation-blue"></a>
-<a href="https://github.com/tangyoha/telegram_media_downloader/actions"><img alt="Unittest" src="https://github.com/tangyoha/telegram_media_downloader/workflows/Unittest/badge.svg"></a>
-<a href="https://codecov.io/gh/tangyoha/telegram_media_downloader"><img alt="Coverage Status" src="https://codecov.io/gh/tangyoha/telegram_media_downloader/branch/master/graph/badge.svg"></a>
-<a href="https://github.com/tangyoha/telegram_media_downloader/blob/master/LICENSE"><img alt="License: MIT" src="https://black.readthedocs.io/en/stable/_static/license.svg"></a>
-<a href="https://github.com/python/black"><img alt="Code style: black" src="https://img.shields.io/badge/code%20style-black-000000.svg"></a>
-<a href="https://github.com/tangyoha/telegram_media_downloader/releases">
-<img alt="Code style: black" src="https://img.shields.io/github/v/release/tangyoha/telegram_media_downloader?display_name=tag"></a>
-</p>
+[![最新版本](https://img.shields.io/github/v/release/ack528/telegram_media_downloader_enhanced?display_name=tag&label=release)](https://github.com/ack528/telegram_media_downloader_enhanced/releases/latest)
+[![测试](https://github.com/ack528/telegram_media_downloader_enhanced/actions/workflows/unittest.yml/badge.svg)](https://github.com/ack528/telegram_media_downloader_enhanced/actions)
+[![许可证](https://img.shields.io/github/license/ack528/telegram_media_downloader_enhanced)](LICENSE)
+![平台](https://img.shields.io/badge/platform-Windows-0078D4)
 
-<h3 align="center">
-  <a href="./README_CN.md">中文</a><span> · </span>
-  <a href="https://github.com/tangyoha/telegram_media_downloader/discussions/categories/ideas">Feature request</a>
-  <span> · </span>
-  <a href="https://github.com/tangyoha/telegram_media_downloader/issues">Report a bug</a>
-  <span> · </span>
-  Support: <a href="https://github.com/tangyoha/telegram_media_downloader/discussions">Discussions</a>
-  <span> & </span>
-  <a href="https://t.me/TeegramMediaDownload">Telegram Community</a>
-</h3>
+## 项目说明
 
-## Enhanced fork
+本项目基于 [tangyoha/telegram_media_downloader](https://github.com/tangyoha/telegram_media_downloader) 继续开发，其上游源自 [Dineshkarthik/telegram_media_downloader](https://github.com/Dineshkarthik/telegram_media_downloader)。感谢原作者和贡献者提供的基础实现；本项目保留 MIT 许可证要求的原始版权声明，以下内容主要介绍增强版的改进。
 
-This fork is based on
-[tangyoha/telegram_media_downloader](https://github.com/tangyoha/telegram_media_downloader)
-and adds Windows-friendly fixes for long-running downloads and packaged
-executables.
+## 相较原项目的主要提升
 
-### Enhanced changes
+### 更可靠的下载与断点恢复
 
-- Sanitizes Telegram chat titles and generated file names before using them as
-  Windows paths.
-  - Windows-reserved characters such as `/ \ : * ? " < > |` are replaced with
-    `_`.
-  - Control characters and symbol-only emoji are removed.
-  - Empty sanitized names fall back to `untitled`.
-- Uses the same sanitized chat directory for temporary downloads and final files.
-- When running from `tdl.exe`, reads `config.yaml` and `data.yaml` from the same
-  directory as the executable.
-- Resolves relative `save_path` values from the executable directory.
-- Disables Windows console QuickEdit mode at startup to avoid accidental console
-  selection pausing download tasks until Enter/Esc is pressed.
-- Suppresses Pyrogram's noisy `reply_parameters` deprecation warning.
-- Updates the PyInstaller spec so packaging no longer references missing parser
-  cache files.
-- Resumes interrupted downloads from retained `.temp` files after restart.
-- Persists queued and finished task state immediately so unfinished message ids
-  are restored from `data.yaml` after unexpected exits.
-- Explicitly marks each queued message id as pending and removes it only after
-  success or skip, making crash recovery independent from shutdown hooks.
-- Retries interrupted downloads up to five times with incremental backoff and
-  refreshed Telegram message references.
-- Shows an `Updated at` timestamp in the live bot progress message so stale
-  notification updates are easy to spot during long-running downloads.
-- Prevents slow or stuck Telegram bot message edits from blocking future live
-  progress updates; failed edits are retried by the next status loop.
-- Restarts stalled Telegram file streams with resumable retry when no new chunk
-  arrives before `download_stall_timeout`.
-- Monitors long-running download speed and can switch Clash to the fastest
-  non-timeout US node when speed remains below the configured threshold.
-- Packages Windows releases as a single `tdl.exe`; keep `config.yaml`,
-  `data.yaml`, `sessions`, `temp`, and `log` beside it and replace only the exe
-  when updating.
-- Retries Telegram message refetches after transient `Connection lost` errors,
-  prevents failed downloads from staying cached as `Downloading`, and writes a
-  periodic download heartbeat while long tasks are active.
+- 下载中断后保留可续传的 `.temp` 文件，并持久化待处理消息 ID。
+- 恢复任务时同时校验聊天、范围和扫描状态，避免软件重启后恢复成另一个历史任务。
+- 状态文件采用原子写入，降低异常退出或断电造成 YAML 损坏的概率。
+- 增加下载停滞检测、指数退避、消息重新获取及协议异常重试。
+- Windows 长路径场景预留临时文件后缀空间，减少大文件下载到后期才因路径过长失败的问题。
 
-### Windows executable usage
+### 断网保护与失败跳过互不冲突
 
-1. Put `tdl.exe` in your downloader folder.
-2. Edit `config.yaml` in the same directory as `tdl.exe`.
-3. Run `tdl.exe`.
+- 先判断是否真正断网；断网时等待网络恢复，不消耗单个视频的失败重试次数，也不删除可续传临时文件。
+- 网络正常但同一媒体持续失败时，达到重试上限后清理对应临时文件、记录跳过并继续下一个媒体。
+- 停止任务时可以立即打断断网等待，不会因为网络检测而导致 `/stop` 失效。
+- Telegram 协议解析错误与真实网络中断分开处理，避免错误分类造成无限等待。
+- 可选 Clash 控制器联动：持续低速时切换节点，并设置检测周期和冷却时间。
 
-Downloaded files, temporary files, logs, and sessions are created relative to the
-executable directory unless `save_path` is set to an absolute path.
+### 机器人任务恢复与控制
 
-When updating, keep `config.yaml`, `data.yaml`, `sessions`, `temp`, and `log` in
-place. Replace only `tdl.exe`.
+- 持久化原始 `/download` 命令的消息 ID、文本、链接和下载范围。
+- 软件重启后，恢复通知继续引用最初发送的下载命令；原消息已删除时提供可读的备用说明。
+- 恢复中的任务会重新注册到任务列表，因此可以在 `/stop` 菜单中看到并停止。
+- 已停止任务会从恢复状态中清除，不会在下次启动时再次自动恢复。
+- 同一聊天内阻止互相冲突的并发任务，避免状态相互覆盖。
+- 机器人状态通知只展示最近 5 个仍在活跃下载的视频；已完成、中断或跳过的条目会及时移除。
+- Telegram 消息长度按 UTF-16 安全限制，避免进度通知过长而发送失败。
 
-### Resume and recovery
+### 临时目录和长期运行治理
 
-Downloads are first written to `temp/<chat title>/<file>.temp`. If the program is
-closed unexpectedly, the partial temp file is kept. On the next run, the
-downloader aligns it to Telegram's 1 MB chunk boundary and continues from the
-last safe chunk.
+- 正常完成、明确跳过、永久失败和人工停止分别执行对应的状态清理。
+- 永久失败的视频不会无限留在队列和 `temp` 目录中。
+- 活跃下载、失败状态、Web 历史记录均有边界，避免运行时间越长占用越多内存。
+- 心跳和进度状态只保留当前有效任务，避免机器人通知不断堆积旧视频。
 
-Queued and in-progress message ids are written to `data.yaml`, so unfinished
-tasks are retried automatically after restart. Completed files are checked by
-size before being skipped; partial final files are moved back into the temp
-resume path.
+### 转发、上传和 Web 管理修复
 
-Each queued message id is added to the recovery list before the download starts.
-The id is removed only after a successful download or an intentional skip. This
-means closing the console window or killing the process while a task is running
-will leave the id in `data.yaml` for the next startup.
+- 修复媒体组、无效转发过滤器、上传缓存和上传完成后的删除顺序。
+- rclone 改为可检查退出状态的子进程执行；只有确认上传成功后才删除本地文件。
+- 修复 Aligo 在线程执行器中的调用问题。
+- Web 状态使用线程安全快照和标准 JSON 输出，处理零大小文件等边界情况。
+- Web 会话密钥不再使用固定默认值，降低默认部署的安全风险。
 
-### Build the executable
+### Windows 单文件版本
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
-.\.venv\Scripts\python.exe -m PyInstaller media_downloader.spec --clean --noconfirm
-```
+- 提供可直接运行的单文件 EXE，运行目录、配置、日志、会话和临时文件路径在 PyInstaller 环境下保持一致。
+- 修复 Windows 非法文件名、保留名称、末尾空格/句点和控制台快速编辑导致的暂停问题。
+- 升级时只需替换 EXE，可继续保留 `config.yaml`、`data.yaml`、会话、日志和未完成的临时文件。
 
-The single-file executable is written to `dist\tdl.exe`.
+## 核心功能
 
-## Overview
-> Support two default running
+- 按频道、群组或消息范围批量下载 Telegram 媒体。
+- 支持音频、文档、图片、视频、语音和视频消息。
+- 支持机器人下发下载任务、查看状态、停止任务和重启恢复。
+- 支持过滤器、自定义目录结构、文件名模板、转发和上传到网盘。
+- 支持 Web 状态页面、Clash 低速切换和断点续传。
 
-* The robot is running, and the command `download` or `forward` is issued from the robot
+## Windows 快速开始
 
-* Download as a one-time download tool
+1. 从 [最新 Release](https://github.com/ack528/telegram_media_downloader_enhanced/releases/latest) 下载 `tdl-v3.1.16-fixed.exe`。
+2. 将 EXE 放到一个固定目录，并在同一目录准备 `config.yaml`。
+3. 首次运行后按提示完成 Telegram 登录；`*.session` 文件会保存在程序目录。
+4. 后续升级只替换 EXE，不要删除 `config.yaml`、`data.yaml`、`sessions`、`temp` 和下载目录。
 
-### UI
-
-#### Web page
-
-> After running, open a browser and visit `localhost:5000`
-> If it is a remote machine, you need to configure web_host: 0.0.0.0
-
-
-<img alt="Code style: black" style="width:100%; high:60%;" src="./screenshot/web_ui.gif"/>
-
-### Robot
-
-> Need to configure bot_token, please refer to [Documentation](https://github.com/tangyoha/telegram_media_downloader/wiki/How-to-Download-Using-Robots)
-
-<img alt="Code style: black" style="width:60%; high:30%; " src="./screenshot/bot.gif"/>
-
-### Support
-
-| Category             | Support                                          |
-| -------------------- | ------------------------------------------------ |
-| Language             | `Python 3.7` and above                           |
-| Download media types | audio, document, photo, video, video_note, voice |
-
-### Version release plan
-
-* [v2.2.0](https://github.com/tangyoha/telegram_media_downloader/issues/2)
-
-## Installation
-
-For *nix os distributions with `make` availability
-
-```sh
-git clone https://github.com/ack528/telegram_media_downloader_enhanced.git
-cd telegram_media_downloader_enhanced
-make install
-```
-
-For Windows which doesn't have `make` inbuilt
-
-```sh
-git clone https://github.com/ack528/telegram_media_downloader_enhanced.git
-cd telegram_media_downloader_enhanced
-pip3 install -r requirements.txt
-```
-
-## Docker
-> For more detailed installation tutorial, please check the wiki
-
-Make sure you have **docker** and **docker-compose** installed
-```sh
-docker pull tangyoha/telegram_media_downloader:latest
-mkdir -p ~/app && mkdir -p ~/app/log/ && cd ~/app
-wget https://raw.githubusercontent.com/tangyoha/telegram_media_downloader/master/docker-compose.yaml -O docker-compose.yaml
-wget https://raw.githubusercontent.com/tangyoha/telegram_media_downloader/master/config.yaml -O config.yaml
-wget https://raw.githubusercontent.com/tangyoha/telegram_media_downloader/master/data.yaml -O data.yaml
-# vi config.yaml and docker-compose.yaml
-vi config.yaml
-
-# The first time you need to start the foreground
-# enter your phone number and code, then exit(ctrl + c)
-docker-compose run --rm telegram_media_downloader
-
-# After performing the above operations, all subsequent startups will start in the background
-docker-compose up -d
-
-# Upgrade
-docker pull tangyoha/telegram_media_downloader:latest
-cd ~/app
-docker-compose down
-docker-compose up -d
-```
-
-## Upgrade installation
-
-```sh
-cd telegram_media_downloader
-pip3 install -r requirements.txt
-```
-
-## Configuration
-
-All the configurations are  passed to the Telegram Media Downloader via `config.yaml` file.
-
-**Getting your API Keys:**
-The very first step requires you to obtain a valid Telegram API key (API id/hash pair):
-
-1. Visit  [https://my.telegram.org/apps](https://my.telegram.org/apps)  and log in with your Telegram Account.
-2. Fill out the form to register a new Telegram application.
-3. Done! The API key consists of two parts:  **api_id**  and  **api_hash**.
-
-**Getting chat id:**
-
-**1. Using web telegram:**
-
-1. Open <https://web.telegram.org/?legacy=1#/im>
-
-2. Now go to the chat/channel and you will see the URL as something like
-   - `https://web.telegram.org/?legacy=1#/im?p=u853521067_2449618633394` here `853521067` is the chat id.
-   - `https://web.telegram.org/?legacy=1#/im?p=@somename` here `somename` is the chat id.
-   - `https://web.telegram.org/?legacy=1#/im?p=s1301254321_6925449697188775560` here take `1301254321` and add `-100` to the start of the id => `-1001301254321`.
-   - `https://web.telegram.org/?legacy=1#/im?p=c1301254321_6925449697188775560` here take `1301254321` and add `-100` to the start of the id => `-1001301254321`.
-
-**2. Using bot:**
-
-1. Use [@username_to_id_bot](https://t.me/username_to_id_bot) to get the chat_id of
-    - almost any telegram user: send username to the bot or just forward their message to the bot
-    - any chat: send chat username or copy and send its joinchat link to the bot
-    - public or private channel: same as chats, just copy and send to the bot
-    - id of any telegram bot
-
-### config.yaml
+最小配置示例：
 
 ```yaml
-api_hash: your_api_hash
 api_id: your_api_id
-chat:
-- chat_id: telegram_chat_id
-  last_read_message_id: 0
-  download_filter: message_date >= 2022-12-01 00:00:00 and message_date <= 2023-01-17 00:00:00
-- chat_id: telegram_chat_id_2
-  last_read_message_id: 0
-# note we remove ids_to_retry to data.yaml
-ids_to_retry: []
-media_types:
-- audio
-- document
-- photo
-- video
-- voice
-- animation #gif
-file_formats:
-  audio:
-  - all
-  document:
-  - pdf
-  - epub
-  video:
-  - mp4
-save_path: D:\telegram_media_downloader
-file_path_prefix:
-- chat_title
-- media_datetime
-upload_drive:
-  # required
-  enable_upload_file: true
-  # required
-  remote_dir: drive:/telegram
-  # required
-  upload_adapter: rclone
-  # option,when config upload_adapter rclone then this config are required
-  rclone_path: D:\rclone\rclone.exe
-  # option
-  before_upload_file_zip: True
-  # option
-  after_upload_file_delete: True
-hide_file_name: true
-file_name_prefix:
-- message_id
-- file_name
-file_name_prefix_split: ' - '
-max_download_task: 5
-web_host: 127.0.0.1
-web_port: 5000
+api_hash: your_api_hash
+bot_token: your_bot_token
 language: ZH
-web_login_secret: 123
+
+chat:
+  - chat_id: telegram_chat_id
+    last_read_message_id: 0
+
+media_types:
+  - audio
+  - photo
+  - video
+  - document
+  - voice
+  - video_note
+
+file_formats:
+  audio: [all]
+  document: [all]
+  video: [all]
+
+save_path: D:\TelegramDownloads
+file_path_prefix:
+  - chat_title
+  - media_datetime
+
 allowed_user_ids:
-- 'me'
-date_format: '%Y_%m'
-enable_download_txt: false
-```
+  - me
 
-- **api_hash**  - The api_hash you got from telegram apps
-- **api_id** - The api_id you got from telegram apps
-- **bot_token** - Your bot token
-- **chat** - Chat list
-  - `chat_id` -  The id of the chat/channel you want to download media. Which you get from the above-mentioned steps.
-  - `download_filter` - Download filter, see [How to use Filter](https://github.com/tangyoha/telegram_media_downloader/wiki/How-to-use-Filter)
-  - `last_read_message_id` - If it is the first time you are going to read the channel let it be `0` or if you have already used this script to download media it will have some numbers which are auto-updated after the scripts successful execution. Don't change it.
-  - `ids_to_retry` - `Leave it as it is.` This is used by the downloader script to keep track of all skipped downloads so that it can be downloaded during the next execution of the script.
-- **media_types** - Type of media to download, you can update which type of media you want to download it can be one or any of the available types.
-- **file_formats** - File types to download for supported media types which are `audio`, `document` and `video`. Default format is `all`, downloads all files.
-- **save_path** - The root directory where you want to store downloaded files.
-- **file_path_prefix** - Store file subfolders, the order of the list is not fixed, can be randomly combined.
-  - `chat_title`      - Channel or group title, it will be chat id if not exist title.
-  - `media_datetime`  - Media date.
-  - `media_type`      - Media type, also see `media_types`.
-- **upload_drive** - You can upload file to cloud drive.
-  - `enable_upload_file` - Enable upload file, default `false`.
-  - `remote_dir` - Where you upload, like `drive_id/drive_name`.
-  - `upload_adapter` - Upload file adapter, which can be `rclone`, `aligo`. If it is `rclone`, it supports all `rclone` servers that support uploading. If it is `aligo`, it supports uploading `Ali cloud disk`.
-  - `rclone_path` - RClone exe path, see [How to use rclone](https://github.com/tangyoha/telegram_media_downloader/wiki/Rclone)
-  - `before_upload_file_zip` - Zip file before upload, default `false`.
-  - `after_upload_file_delete` - Delete file after upload success, default `false`.
-- **file_name_prefix** - Custom file name, use the same as **file_path_prefix**
-  - `message_id` - Message id
-  - `file_name` - File name (may be empty)
-  - `caption` - The title of the message (may be empty)
-- **file_name_prefix_split** - Custom file name prefix symbol, the default is `-`
-- **max_download_task** - The maximum number of task download tasks, the default is 5.
-- **hide_file_name** - Whether to hide the web interface file name, default `false`
-- **web_host** - Web host
-- **web_port** - Web port
-- **language** - Application language, the default is Chinese (`ZH`), optional `EN`,`RU`,`UA`
-- **web_login_secret** - Web page login password, if not configured, no login is required to access the web page
-- **log_level** - see `logging._nameToLevel`.
-- **forward_limit** - Limit the number of forwards per minute, the default is 33, please do not modify this parameter by default.
-- **allowed_user_ids** - Who is allowed to use the robot? The default login account can be used. Please add single quotes to the name with @.
-- **date_format** Support custom configuration of media_datetime format in file_path_prefix.see [python-datetime](https://docs.python.org/3/library/datetime.html)
-- **enable_download_txt** Enable download txt file, default `false`
-
-## Execution
-
-```sh
-python3 media_downloader.py
-```
-
-All downloaded media will be stored at the root of `save_path`.
-The specific location reference is as follows:
-
-The complete directory of video download is: `save_path`/`chat_title`/`media_datetime`/`media_type`.
-The order of the list is not fixed and can be randomly combined.
-If the configuration is empty, all files are saved under `save_path`.
-
-## Proxy
-
-`socks4, socks5, http` proxies are supported in this project currently. To use it, add the following to the bottom of your `config.yaml` file
-
-```yaml
-proxy:
-  scheme: socks5
-  hostname: 127.0.0.1
-  port: 1234
-  username: your_username(delete the line if none)
-  password: your_password(delete the line if none)
-```
-
-If your proxy doesn’t require authorization you can omit username and password. Then the proxy will automatically be enabled.
-
-## Clash auto switch
-
-This enhanced fork can use Clash's external controller to recover from long
-periods of very low download speed. By default it uses `http://127.0.0.1:9097`
-with secret `999`, watches for active downloads staying below `100 KB/s` for
-`60` seconds, tests US nodes, and switches the selector to the lowest-latency
-node that does not timeout.
-
-You can override the defaults in `config.yaml`:
-
-```yaml
 download_stall_timeout: 90
+history_fetch_timeout: 60
+history_fetch_retries: 3
+scan_prefetch_limit: 5
 
 clash:
-  enabled: true
+  enabled: false
   controller: http://127.0.0.1:9097
-  secret: "999"
-  selector: Proxy
+  secret: ""
+  selector: ""
   low_speed_kb: 100
   low_speed_seconds: 60
   switch_cooldown_seconds: 300
@@ -377,29 +125,75 @@ clash:
   test_url: https://www.gstatic.com/generate_204
 ```
 
-Leave `selector` empty to let the downloader choose a Clash proxy group that
-contains US nodes. Set `clash.enabled: false` to disable this monitor.
+`api_id` 和 `api_hash` 可在 [Telegram API](https://my.telegram.org/apps) 获取。请勿把真实的 `api_hash`、机器人 Token、会话文件或含私人频道信息的配置提交到公开仓库。
 
-## Contributing
+## 机器人常用命令
 
-### Contributing Guidelines
+- `/download`：查看下载用法或创建下载任务。
+- `/stop`：列出当前任务并停止指定任务。
+- `/get_info`：获取聊天或消息信息。
+- `/forward`：创建转发任务。
+- `/listen_forward`：监听并转发新消息。
+- `/help`：查看机器人帮助。
 
-Read through our [contributing guidelines](https://github.com/tangyoha/telegram_media_downloader/blob/master/CONTRIBUTING.md) to learn about our submission process, coding rules and more.
+下载范围示例：
 
-### Want to Help?
+```text
+/download https://t.me/example_channel 1000 2000
+```
 
-Want to file a bug, contribute some code, or improve documentation? Excellent! Read up on our guidelines for [contributing](https://github.com/tangyoha/telegram_media_downloader/blob/master/CONTRIBUTING.md).
+任务恢复时会保存并引用这条原始命令。机器人消息被删除时，恢复通知会显示保存下来的原始命令文本。
 
-### Code of Conduct
+## 失败处理规则
 
-Help us keep Telegram Media Downloader open and inclusive. Please read and follow our [Code of Conduct](https://github.com/tangyoha/telegram_media_downloader/blob/master/CODE_OF_CONDUCT.md).
+处理顺序固定为：
 
+1. 检测是否断网。
+2. 断网时保留临时文件并等待恢复。
+3. 网络在线时执行媒体级重试和退避。
+4. 达到永久失败上限后清理该媒体的临时状态，标记跳过并继续下一个。
+5. 收到 `/stop` 时，无论正在下载、重试还是等待网络，都停止并清除恢复标记。
 
-### Sponsor
+这样可以避免断网期间误删可续传文件，也能防止单个损坏或不可访问的视频无限阻塞整个队列。
 
-[PayPal](https://paypal.me/tangyoha?country.x=C2&locale.x=zh_XC)
+## 从源码运行与构建
 
+建议使用 Python 3.11：
 
-## Star History
+```powershell
+git clone https://github.com/ack528/telegram_media_downloader_enhanced.git
+cd telegram_media_downloader_enhanced
+python -m pip install -r requirements.txt
+python media_downloader.py
+```
 
-[![Star History Chart](https://api.star-history.com/svg?repos=tangyoha/telegram_media_downloader&type=Date)](https://star-history.com/#tangyoha/telegram_media_downloader&Date)
+运行测试：
+
+```powershell
+python -m pytest -q
+```
+
+构建 Windows 单文件：
+
+```powershell
+python -m pip install pyinstaller
+python -m PyInstaller --clean --noconfirm media_downloader.spec
+```
+
+生成文件位于 `dist\tdl.exe`。
+
+## 问题反馈
+
+提交问题前，请准备：
+
+- 软件版本和运行方式（源码或 EXE）。
+- 已脱敏的相关日志。
+- 任务链接类型和下载范围。
+- 问题发生时是否断网、切换代理或重启软件。
+- `temp` 和任务状态的现象说明。
+
+请通过 [Issues](https://github.com/ack528/telegram_media_downloader_enhanced/issues) 反馈问题，讨论和建议可发布到 [Discussions](https://github.com/ack528/telegram_media_downloader_enhanced/discussions)。
+
+## 许可证与致谢
+
+本项目使用 [MIT License](LICENSE)。增强版代码由 Telegram Media Downloader Enhanced 项目维护；原项目及更早上游的版权声明继续按许可证保留。
