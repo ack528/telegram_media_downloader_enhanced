@@ -60,7 +60,7 @@ class ResilienceTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(file_name, "file.mp4")
         self.assertEqual(calls, 2)
 
-    async def test_download_media_marks_fetch_failure_failed(self):
+    async def test_download_media_skips_non_network_fetch_failure(self):
         from media_downloader import download_media
 
         node = TaskNode(chat_id=20)
@@ -72,7 +72,7 @@ class ResilienceTestCase(unittest.IsolatedAsyncioTestCase):
         with mock.patch("media_downloader.fetch_message", fail_fetch):
             status, file_name = await download_media(None, message, ["video"], {}, node)
 
-        self.assertEqual(status, DownloadStatus.FailedDownload)
+        self.assertEqual(status, DownloadStatus.SkipDownload)
         self.assertIsNone(file_name)
 
     async def test_network_failure_request_switches_clash_without_active_download(self):
@@ -111,6 +111,14 @@ class ResilienceTestCase(unittest.IsolatedAsyncioTestCase):
             media_downloader.app.is_running = old_is_running
 
         self.assertEqual(switch_calls, 1)
+
+    def test_bad_message_notification_is_not_a_network_error(self):
+        import media_downloader
+
+        error = AttributeError(
+            "'BadMsgNotification' object has no attribute 'users'"
+        )
+        self.assertFalse(media_downloader._is_network_error(error))
 
 
 if __name__ == "__main__":

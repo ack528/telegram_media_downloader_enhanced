@@ -54,6 +54,7 @@ _mimetypes.readfp(StringIO(mime_types))
 _download_cache = Cache(1024 * 1024 * 1024)
 BOT_STATUS_EDIT_TIMEOUT = 30
 BOT_STATUS_FLOOD_WAIT_PADDING = 1
+BOT_STATUS_MAX_UTF16_UNITS = 4000
 FETCH_MESSAGE_TIMEOUT = 30
 FETCH_MESSAGE_RETRY_COUNT = 5
 FETCH_MESSAGE_RETRY_DELAY = 3
@@ -144,6 +145,16 @@ def get_utf16_length(text: str) -> int:
     """
     # After encoding to utf-16-le, every 2 bytes represent 1 UTF-16 unit
     return len(text.encode("utf-16-le")) // 2
+
+
+def _truncate_utf16_text(text: str, max_units: int) -> str:
+    """Truncate text without splitting a UTF-16 surrogate pair."""
+    if get_utf16_length(text) <= max_units:
+        return text
+    suffix = "\n…"
+    suffix_units = get_utf16_length(suffix)
+    encoded = text.encode("utf-16-le")[: (max_units - suffix_units) * 2]
+    return encoded.decode("utf-16-le", errors="ignore") + suffix
 
 
 def get_media_obj(
@@ -367,8 +378,9 @@ async def upload_telegram_chat(
         if download_status is DownloadStatus.SuccessDownload or (
             download_status is DownloadStatus.SkipDownload and not message.media
         ):
+            forward_status = ForwardStatus.FailedForward
             try:
-                await upload_telegram_chat_message(
+                forward_status = await upload_telegram_chat_message(
                     client,
                     upload_user,
                     app,
@@ -379,7 +391,13 @@ async def upload_telegram_chat(
             except Exception as e:
                 logger.exception(f"Upload file {file_name} error: {e}")
             finally:
-                if file_name and app.after_upload_telegram_delete:
+                if (
+                    file_name
+                    and app.after_upload_telegram_delete
+                    and forward_status
+                    in (ForwardStatus.SuccessForward, ForwardStatus.CacheForward)
+                    and os.path.exists(file_name)
+                ):
                     os.remove(file_name)
 
             # forward text
@@ -911,7 +929,7 @@ async def forward_multi_media(
 
             for it in media_group:
                 node.media_group_ids[message.media_group_id][it.id] = None
-                node.upload_status[message.id] = None
+                node.upload_status[it.id] = None
 
         if not node.media_group_ids[message.media_group_id][message.id]:
             node.upload_status[message.id] = UploadStatus.Uploading
@@ -988,7 +1006,7 @@ async def proc_cache_forward(
             if node.skip_msg_id(key) or download_status in {
                 DownloadStatus.SkipDownload,
                 DownloadStatus.FailedDownload,
-            }:
+            } or upload_status == UploadStatus.SkipUpload:
                 continue
 
             # Return if any media is still downloading or uploading
@@ -998,7 +1016,6 @@ async def proc_cache_forward(
                     and download_status == DownloadStatus.Downloading
                 )
                 or upload_status == UploadStatus.Uploading
-                or upload_status == UploadStatus.SkipUpload
             ):
                 return ForwardStatus.CacheForward
 
@@ -1019,6 +1036,12 @@ async def proc_cache_forward(
                         item.entities = None
 
         node.media_group_ids.pop(message.media_group_id)
+        for key in media_group:
+            node.upload_status.pop(key, None)
+            node.download_status.pop(key, None)
+
+    if not multi_media:
+        return ForwardStatus.CacheForward
 
     forward_status = ForwardStatus.SuccessForward
 
@@ -1137,13 +1160,18 @@ async def _edit_bot_status_message(
     message_text: str,
 ) -> bool:
     """Edit bot status without blocking the status loop forever."""
+    message_text = _truncate_utf16_text(
+        message_text, BOT_STATUS_MAX_UTF16_UNITS
+    )
     try:
         await asyncio.wait_for(
             client.edit_message_text(
                 node.from_user_id,
                 node.reply_message_id,
                 message_text,
-                parse_mode=pyrogram.enums.ParseMode.MARKDOWN,
+                # Filenames are user-controlled and may contain Markdown
+                # delimiters.  Plain text avoids invalid entity ranges.
+                parse_mode=pyrogram.enums.ParseMode.DISABLED,
             ),
             timeout=BOT_STATUS_EDIT_TIMEOUT,
         )
@@ -1226,7 +1254,17 @@ async def _report_bot_status(
         download_result = get_download_result()
         if node.chat_id in download_result:
             messages = download_result[node.chat_id]
-            for idx, value in messages.items():
+            active_messages = [
+                (idx, value)
+                for idx, value in messages.items()
+                if value["task_id"] == node.task_id
+                and value["down_byte"] < value["total_size"]
+                and not value.get("terminal", False)
+            ]
+            active_messages.sort(
+                key=lambda item: item[1].get("end_time", 0), reverse=True
+            )
+            for idx, value in active_messages[:5]:
                 task_id = value["task_id"]
                 if task_id != node.task_id or value["down_byte"] == value["total_size"]:
                     continue
@@ -1272,7 +1310,6 @@ async def _report_bot_status(
         clash_download_speed = _format_speed(await _get_cached_clash_download_speed())
         software_download_speed = _format_speed(get_total_download_speed())
         new_msg_str = (
-            f"`\n"
             f"🆔 {_t('Task ID')}: {node.task_id}\n"
             f"{_t('Updated at')}: {status_update_time}\n"
             f"{_t('Clash download speed')}: {clash_download_speed}\n"
@@ -1285,7 +1322,7 @@ async def _report_bot_status(
             f"{node.forward_msg_detail_str}"
             f"{upload_msg_detail_str}"
             f"{upload_result_str}"
-            f"{download_result_str}\n`"
+            f"{download_result_str}"
         )
 
         if new_msg_str != node.last_edit_msg:

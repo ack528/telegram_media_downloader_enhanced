@@ -6,7 +6,6 @@ import inspect
 import os
 import re
 from asyncio import subprocess
-from subprocess import Popen
 from typing import Callable
 from zipfile import ZipFile
 
@@ -59,13 +58,9 @@ class CloudDrive:
     @staticmethod
     def rclone_mkdir(drive_config: CloudDriveConfig, remote_dir: str):
         """mkdir in remote"""
-        with Popen(
-            f'"{drive_config.rclone_path}" mkdir "{remote_dir}/"',
-            shell=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-        ):
-            pass
+        # `rclone copy` creates its destination. Keeping this method as a
+        # no-op avoids a detached shell process racing the actual upload.
+        return remote_dir
 
     @staticmethod
     def aligo_mkdir(drive_config: CloudDriveConfig, remote_dir: str):
@@ -83,7 +78,7 @@ class CloudDrive:
         zip_file_name = file_path_without_extension + ".zip"
 
         with ZipFile(zip_file_name, "w") as zip_writer:
-            zip_writer.write(local_file_path)
+            zip_writer.write(local_file_path, arcname=os.path.basename(local_file_path))
 
         return zip_file_name
 
@@ -118,47 +113,56 @@ class CloudDrive:
             else:
                 file_path = local_file_path
 
-            cmd = (
-                f'"{drive_config.rclone_path}" copy "{file_path}" '
-                f'"{remote_dir}/" --create-empty-src-dirs --ignore-existing --progress'
-            )
-            proc = await asyncio.create_subprocess_shell(
-                cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+            proc = await asyncio.create_subprocess_exec(
+                drive_config.rclone_path,
+                "copy",
+                file_path,
+                f"{remote_dir}/",
+                "--create-empty-src-dirs",
+                "--ignore-existing",
+                "--progress",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
             )
             if proc.stdout:
                 async for output in proc.stdout:
                     s = output.decode(errors="replace")
                     print(s)
-                    if "Transferred" in s and "100%" in s and "1 / 1" in s:
-                        logger.info(f"upload file {local_file_path} success")
-                        drive_config.total_upload_success_file_count += 1
-                        if drive_config.after_upload_file_delete:
-                            os.remove(local_file_path)
-                        if drive_config.before_upload_file_zip:
-                            os.remove(zip_file_path)
-                        upload_status = True
-                    else:
-                        pattern = (
-                            r"Transferred: (.*?) / (.*?), (.*?)%, (.*?/s)?, ETA (.*?)$"
+                    pattern = (
+                        r"Transferred: (.*?) / (.*?), (.*?)%, (.*?/s)?, ETA (.*?)$"
+                    )
+                    transferred_match = re.search(pattern, s)
+
+                    if transferred_match and progress_callback:
+                        func = functools.partial(
+                            progress_callback,
+                            transferred_match.group(1),
+                            transferred_match.group(2),
+                            transferred_match.group(3),
+                            transferred_match.group(4),
+                            transferred_match.group(5),
+                            *progress_args,
                         )
-                        transferred_match = re.search(pattern, s)
+                        if inspect.iscoroutinefunction(progress_callback):
+                            await func()
+                        else:
+                            func()
 
-                        if transferred_match:
-                            if progress_callback:
-                                func = functools.partial(
-                                    progress_callback,
-                                    transferred_match.group(1),
-                                    transferred_match.group(2),
-                                    transferred_match.group(3),
-                                    transferred_match.group(4),
-                                    transferred_match.group(5),
-                                    *progress_args,
-                                )
-
-                            if inspect.iscoroutinefunction(progress_callback):
-                                await func()
-
-            await proc.wait()
+            return_code = await proc.wait()
+            if return_code == 0:
+                logger.info("upload file {} success", local_file_path)
+                drive_config.total_upload_success_file_count += 1
+                if drive_config.after_upload_file_delete:
+                    os.remove(local_file_path)
+                if drive_config.before_upload_file_zip and os.path.exists(zip_file_path):
+                    os.remove(zip_file_path)
+                upload_status = True
+            else:
+                logger.error(
+                    "rclone upload failed with exit code {}: {}",
+                    return_code,
+                    local_file_path,
+                )
         except Exception as e:
             logger.error(f"{e.__class__} {e}")
             return False

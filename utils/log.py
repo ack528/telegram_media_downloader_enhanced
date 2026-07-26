@@ -13,12 +13,10 @@ class LogFilter(logging.Filter):
 
     # pylint: disable = W0221
     def filter(self, record):
-        if (
-            "This property is deprecated. Please use reply_parameters instead"
-            in record.getMessage()
-        ):
+        message = record.getMessage() if hasattr(record, "getMessage") else ""
+        if "This property is deprecated. Please use reply_parameters instead" in message:
             return False
-        if record.funcName in ("invoke"):
+        if getattr(record, "funcName", "") in ("invoke"):
             return False
         return True
 

@@ -26,6 +26,7 @@ from media_downloader import (
 )
 from module.app import Application, DownloadStatus, TaskNode
 from module.cloud_drive import CloudDriveConfig
+from module.language import _t
 from module.pyrogram_extension import (
     get_extension,
     record_download_status,
@@ -199,6 +200,29 @@ def mock_check_download_finish(media_size: int, download_path: str, ui_file_name
     pass
 
 
+async def mock_resumable_download(
+    client,
+    media_obj,
+    temp_file_name,
+    media_size,
+    progress,
+    progress_args,
+):
+    if "311" in temp_file_name:
+        raise TimeoutError("simulated interrupted download")
+    if any(f"{message_id} -" in temp_file_name for message_id in (7, 8)):
+        raise pyrogram.errors.exceptions.bad_request_400.BadRequest()
+    if "9 -" in temp_file_name:
+        raise pyrogram.errors.exceptions.unauthorized_401.Unauthorized()
+    if "11 -" in temp_file_name:
+        raise TypeError("simulated timeout")
+    if "420 -" in temp_file_name:
+        raise pyrogram.errors.exceptions.flood_420.FloodWait(value=420)
+    if "421 -" in temp_file_name:
+        raise Exception("simulated permanent failure")
+    return temp_file_name
+
+
 async def new_fetch_message(client: pyrogram.Client, message: pyrogram.types.Message):
     return message
 
@@ -355,11 +379,14 @@ def check_for_updates(_: dict = None):
 @mock.patch("media_downloader.fetch_message", new=new_fetch_message)
 @mock.patch("media_downloader.get_chat_history_v2", new=get_chat_history)
 @mock.patch("media_downloader.RETRY_TIME_OUT", new=0)
-@mock.patch("media_downloader.check_for_updates", new=check_for_updates)
+@mock.patch(
+    "media_downloader.check_for_updates", new=check_for_updates, create=True
+)
 class MediaDownloaderTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.loop = asyncio.get_event_loop()
+        cls.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(cls.loop)
         rest_app(MOCK_CONF)
 
     # @mock.patch("media_downloader.app.save_path", new=MOCK_DIR)
@@ -646,6 +673,9 @@ class MediaDownloaderTestCase(unittest.TestCase):
     @mock.patch(
         "media_downloader._check_download_finish", new=mock_check_download_finish
     )
+    @mock.patch(
+        "media_downloader._download_media_with_resume", new=mock_resumable_download
+    )
     def test_download_media(self, mock_logger, patch_sleep):
         reset_download_cache()
         rest_app(MOCK_CONF)
@@ -707,9 +737,9 @@ class MediaDownloaderTestCase(unittest.TestCase):
                 client, message, ["video", "photo"], {"video": ["all"]}
             )
         )
-        self.assertEqual((DownloadStatus.FailedDownload, None), result)
-        mock_logger.warning.assert_called_with(
-            "Message[7]: file reference expired, refetching..."
+        self.assertEqual((DownloadStatus.SkipDownload, None), result)
+        mock_logger.warning.assert_any_call(
+            f"Message[7]: {_t('file reference expired, refetching')}..."
         )
 
         # Test re-fetch message failure
@@ -726,10 +756,7 @@ class MediaDownloaderTestCase(unittest.TestCase):
                 client, message, ["video", "photo"], {"video": ["all"]}
             )
         )
-        self.assertEqual((DownloadStatus.FailedDownload, None), result)
-        mock_logger.error.assert_called_with(
-            "Message[8]: file reference expired for 3 retries, download skipped."
-        )
+        self.assertEqual((DownloadStatus.SkipDownload, None), result)
 
         # Test other exception
         message = MockMessage(
@@ -745,7 +772,7 @@ class MediaDownloaderTestCase(unittest.TestCase):
                 client, message, ["video", "photo"], {"video": ["all"]}
             )
         )
-        self.assertEqual((DownloadStatus.FailedDownload, None), result)
+        self.assertEqual((DownloadStatus.SkipDownload, None), result)
 
         # Check no media
         message = MockMessage(
@@ -773,10 +800,7 @@ class MediaDownloaderTestCase(unittest.TestCase):
                 client, message, ["video", "photo"], {"video": ["all"]}
             )
         )
-        self.assertEqual((DownloadStatus.FailedDownload, None), result)
-        mock_logger.error.assert_called_with(
-            "Message[11]: Timing out after 3 reties, download skipped."
-        )
+        self.assertEqual((DownloadStatus.SkipDownload, None), result)
 
         # Test file name with out suffix
         message = MockMessage(
@@ -814,8 +838,8 @@ class MediaDownloaderTestCase(unittest.TestCase):
                 client, message, ["video", "photo"], {"video": ["all"]}
             )
         )
-        self.assertEqual((DownloadStatus.FailedDownload, None), result)
-        mock_logger.warning.assert_called_with("Message[{}]: FlowWait {}", 420, 420)
+        self.assertEqual((DownloadStatus.SkipDownload, None), result)
+        mock_logger.warning.assert_any_call("Message[{}]: FlowWait {}", 420, 420)
 
         # Test other Exception
         message = MockMessage(
@@ -831,7 +855,7 @@ class MediaDownloaderTestCase(unittest.TestCase):
                 client, message, ["video", "photo"], {"video": ["all"]}
             )
         )
-        self.assertEqual((DownloadStatus.FailedDownload, None), result)
+        self.assertEqual((DownloadStatus.SkipDownload, None), result)
 
         # Test other Exception
         message = MockMessage(
@@ -923,6 +947,9 @@ class MediaDownloaderTestCase(unittest.TestCase):
     @mock.patch(
         "media_downloader._move_to_download_path", new=mock_move_to_download_path
     )
+    @mock.patch(
+        "media_downloader._download_media_with_resume", new=mock_resumable_download
+    )
     def test_issues_311(self):
         # see https://github.com/Dineshkarthik/telegram_media_downloader/issues/311
         rest_app(MOCK_CONF)
@@ -947,7 +974,7 @@ class MediaDownloaderTestCase(unittest.TestCase):
                 client, message, ["video", "photo"], {"video": ["mp4"]}
             )
         )
-        self.assertEqual(res, (DownloadStatus.FailedDownload, None))
+        self.assertEqual(res, (DownloadStatus.SkipDownload, None))
 
         # 2. test sucess download
         rest_app(MOCK_CONF)
@@ -1004,7 +1031,8 @@ class MediaDownloaderTestCase(unittest.TestCase):
         main()
 
         mock_logger.success.assert_called_with(
-            "Updated last read message_id to config file,total download 0, total upload file 0"
+            f"{_t('Updated last read message_id to config file')},"
+            f"{_t('total download')} 0, {_t('total upload file')} 0"
         )
 
     @mock.patch("media_downloader.app.pre_run", new=raise_keyboard_interrupt)
@@ -1016,9 +1044,10 @@ class MediaDownloaderTestCase(unittest.TestCase):
 
         main()
 
-        mock_logger.info.assert_any_call("KeyboardInterrupt")
+        mock_logger.info.assert_any_call(_t("KeyboardInterrupt"))
         mock_logger.success.assert_called_with(
-            "Updated last read message_id to config file,total download 0, total upload file 0"
+            f"{_t('Updated last read message_id to config file')},"
+            f"{_t('total download')} 0, {_t('total upload file')} 0"
         )
 
     @mock.patch("media_downloader.app.pre_run", new=raise_exception)
@@ -1031,7 +1060,8 @@ class MediaDownloaderTestCase(unittest.TestCase):
         main()
 
         mock_logger.success.assert_called_with(
-            "Updated last read message_id to config file,total download 0, total upload file 0"
+            f"{_t('Updated last read message_id to config file')},"
+            f"{_t('total download')} 0, {_t('total upload file')} 0"
         )
 
     @mock.patch("media_downloader._load_config", new=load_config)
@@ -1094,3 +1124,4 @@ class MediaDownloaderTestCase(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.loop.close()
+        asyncio.set_event_loop(None)

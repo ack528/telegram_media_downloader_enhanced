@@ -192,7 +192,7 @@ def get_byte_from_str(byte_str: str) -> Optional[int]:
     return None
 
 
-def truncate_filename(path: str, limit: int = 230) -> str:
+def truncate_filename(path: str, limit: int = None) -> str:
     """Truncate filename to the max len.
 
     Parameters
@@ -209,9 +209,24 @@ def truncate_filename(path: str, limit: int = 230) -> str:
         if file name len more than limit then return truncate filename or return filename
 
     """
+    use_default_limit = limit is None
+    if limit is None:
+        limit = 230
+
     p, f = os.path.split(os.path.normpath(path))
     f, e = os.path.splitext(f)
     f_max = limit - len(e.encode("utf-8"))
+    if os.name == "nt" and use_default_limit:
+        # Telegram downloads use an additional ".temp" suffix.  Keep the
+        # complete legacy Windows path below MAX_PATH as well as keeping the
+        # individual filename component below its filesystem limit.
+        directory = os.path.abspath(p or os.curdir)
+        reserved_suffix = len(".temp")
+        max_path_chars = 245
+        available_chars = (
+            max_path_chars - len(directory) - 1 - len(e) - reserved_suffix
+        )
+        f_max = min(f_max, max(available_chars, 1))
     f = unicodedata.normalize("NFC", f)
     f_trunc = f.encode()[:f_max].decode("utf-8", errors="ignore")
     return os.path.join(p, f_trunc + e)

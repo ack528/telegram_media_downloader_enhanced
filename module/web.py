@@ -2,6 +2,7 @@
 
 import logging
 import os
+import secrets
 import threading
 
 from flask import Flask, jsonify, render_template, request
@@ -11,7 +12,7 @@ import utils
 from module.app import Application
 from module.download_stat import (
     DownloadState,
-    get_download_result,
+    get_download_result_snapshot,
     get_download_state,
     get_total_download_speed,
     set_download_state,
@@ -24,7 +25,7 @@ log.setLevel(logging.ERROR)
 
 _flask_app = Flask(__name__)
 
-_flask_app.secret_key = "tdl"
+_flask_app.secret_key = secrets.token_hex(32)
 _login_manager = LoginManager()
 _login_manager.login_view = "login"
 _login_manager.init_app(_flask_app)
@@ -87,7 +88,7 @@ def init_web(app: Application):
     else:
         _flask_app.config["LOGIN_DISABLED"] = True
     if app.debug_web:
-        threading.Thread(target=run_web_server, args=(app,)).start()
+        threading.Thread(target=run_web_server, args=(app,), daemon=True).start()
     else:
         threading.Thread(
             target=get_flask_app().run, daemon=True, args=(app.web_host, app.web_port)
@@ -186,8 +187,8 @@ def get_download_list():
 
     already_down = request.args.get("already_down") == "true"
 
-    download_result = get_download_result()
-    result = "["
+    download_result = get_download_result_snapshot()
+    result = []
     for chat_id, messages in download_result.items():
         for idx, value in messages.items():
             is_already_down = value["down_byte"] == value["total_size"]
@@ -195,28 +196,23 @@ def get_download_list():
             if already_down and not is_already_down:
                 continue
 
-            if result != "[":
-                result += ","
             download_speed = format_byte(value["download_speed"]) + "/s"
-            result += (
-                '{ "chat":"'
-                + f"{chat_id}"
-                + '", "id":"'
-                + f"{idx}"
-                + '", "filename":"'
-                + os.path.basename(value["file_name"])
-                + '", "total_size":"'
-                + f'{format_byte(value["total_size"])}'
-                + '" ,"download_progress":"'
+            total_size = value["total_size"]
+            progress = (
+                round(value["down_byte"] / total_size * 100, 1)
+                if total_size
+                else 0
             )
-            result += (
-                f'{round(value["down_byte"] / value["total_size"] * 100, 1)}'
-                + '" ,"download_speed":"'
-                + download_speed
-                + '" ,"save_path":"'
-                + value["file_name"].replace("\\", "/")
-                + '"}'
+            result.append(
+                {
+                    "chat": str(chat_id),
+                    "id": str(idx),
+                    "filename": os.path.basename(value["file_name"]),
+                    "total_size": format_byte(total_size),
+                    "download_progress": str(progress),
+                    "download_speed": download_speed,
+                    "save_path": value["file_name"].replace("\\", "/"),
+                }
             )
 
-    result += "]"
-    return result
+    return jsonify(result)

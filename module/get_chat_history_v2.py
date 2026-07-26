@@ -51,7 +51,18 @@ async def get_chunk_v2(
                 ),
                 timeout=request_timeout,
             )
-            break
+            # Pyrogram can occasionally return a protocol notification object
+            # that only fails while parsing (for example BadMsgNotification).
+            # Parse inside the retry boundary so a transient malformed response
+            # does not abort and later restore the wrong task state.
+            messages = await utils.parse_messages(
+                client,
+                raw_messages,
+                replies=0,
+            )
+            if reverse:
+                messages.reverse()
+            return messages
         except asyncio.TimeoutError as exc:
             last_error = exc
             logger.warning(
@@ -80,17 +91,6 @@ async def get_chunk_v2(
         if last_error:
             raise last_error
         raise TimeoutError("GetHistory did not return any result")
-
-    messages = await utils.parse_messages(
-        client,
-        raw_messages,
-        replies=0,
-    )
-
-    if reverse:
-        messages.reverse()
-
-    return messages
 
 
 # pylint: disable = C0301
@@ -126,33 +126,11 @@ async def get_chat_history_v2(
         )
 
         if not messages:
-            break_count = offset_id - 1
-            history_iter = self.get_chat_history(chat_id).__aiter__()
-            while True:
-                try:
-                    message = await asyncio.wait_for(
-                        history_iter.__anext__(), timeout=request_timeout
-                    )
-                except StopAsyncIteration:
-                    break
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "Fallback get_chat_history timeout: chat_id={}, "
-                        "offset_id={}, timeout={}s",
-                        chat_id,
-                        offset_id,
-                        request_timeout,
-                    )
-                    return
-
-                if break_count:
-                    break_count -= 1
-                    continue
-                if len(messages) >= limit + 1:
-                    break
-                messages.append(message)
-            if not messages:
-                return
+            # An empty GetHistory page is the end of the requested range.
+            # Falling back to counting `offset_id` items from the newest
+            # message confuses message IDs with list positions, is extremely
+            # slow for large channels, and can re-queue unrelated old media.
+            return
 
         offset_id = messages[-1].id + (1 if reverse else 0)
 

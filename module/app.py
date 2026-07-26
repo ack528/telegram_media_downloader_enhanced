@@ -1,6 +1,7 @@
 """Application module"""
 
 import asyncio
+import functools
 import os
 import sys
 import time
@@ -30,6 +31,16 @@ def get_runtime_base_path() -> str:
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.abspath(".")
+
+
+def _write_yaml_atomic(file_path: str, data):
+    """Write YAML without leaving a truncated recovery/config file on a crash."""
+    temp_path = f"{file_path}.tmp"
+    with open(temp_path, "w", encoding="utf-8") as yaml_file:
+        _yaml.dump(data, yaml_file)
+        yaml_file.flush()
+        os.fsync(yaml_file.fileno())
+    os.replace(temp_path, file_path)
 
 
 class DownloadStatus(Enum):
@@ -184,6 +195,7 @@ class TaskNode:
         self.topic_id = topic_id
         self.reply_to_message = None
         self.cloud_drive_upload_stat_dict: dict = {}
+        self.scan_finished: bool = False
 
     def skip_msg_id(self, msg_id: int):
         """Skip if message id out of range"""
@@ -197,11 +209,17 @@ class TaskNode:
 
     def is_finish(self):
         """If is finish"""
-        return self.is_stop_transmission or (
-            self.is_running
-            and self.task_type != TaskType.ListenForward
-            and self.total_task == self.total_download_task
-        )
+        if self.is_stop_transmission:
+            return True
+        if not self.is_running:
+            return False
+        if self.task_type is TaskType.Download:
+            return (
+                self.scan_finished
+                and self.total_task == self.total_download_task
+            )
+        # Forward and listen-forward explicitly stop themselves when done.
+        return False
 
     def stop_transmission(self):
         """Stop task"""
@@ -318,9 +336,12 @@ class ChatDownloadConfig:
         self.upload_telegram_chat_id: Union[int, str] = None
         self.is_bot_task: bool = False
         self.recover_only: bool = False
+        self.scan_finished: bool = False
         self.bot_from_user_id: Union[int, str] = None
         self.bot_reply_message_id: int = 0
         self.bot_reply_message: str = ""
+        self.bot_command_message_id: int = 0
+        self.bot_command_message: str = ""
         self.limit: int = 0
         self.start_offset_id: int = 0
         self.end_offset_id: int = 0
@@ -534,8 +555,14 @@ class Application:
 
         # TODO: add check if expression exist syntax error
 
-        self.max_download_task = _config.get(
-            "max_download_task", self.max_download_task
+        self.max_download_task = max(
+            get_config(
+                _config,
+                "max_download_task",
+                self.max_download_task,
+                int,
+            ),
+            1,
         )
         if "scan_prefetch_limit" in _config:
             self.scan_prefetch_limit = get_config(
@@ -548,17 +575,41 @@ class Application:
 
         self.max_concurrent_transmissions = self.max_download_task * 5
 
-        self.max_concurrent_transmissions = _config.get(
-            "max_concurrent_transmissions", self.max_concurrent_transmissions
+        self.max_concurrent_transmissions = max(
+            get_config(
+                _config,
+                "max_concurrent_transmissions",
+                self.max_concurrent_transmissions,
+                int,
+            ),
+            self.max_download_task,
         )
-        self.download_stall_timeout = get_config(
-            _config, "download_stall_timeout", self.download_stall_timeout, int
+        self.download_stall_timeout = max(
+            get_config(
+                _config,
+                "download_stall_timeout",
+                self.download_stall_timeout,
+                int,
+            ),
+            1,
         )
-        self.history_fetch_timeout = get_config(
-            _config, "history_fetch_timeout", self.history_fetch_timeout, int
+        self.history_fetch_timeout = max(
+            get_config(
+                _config,
+                "history_fetch_timeout",
+                self.history_fetch_timeout,
+                int,
+            ),
+            1,
         )
-        self.history_fetch_retries = get_config(
-            _config, "history_fetch_retries", self.history_fetch_retries, int
+        self.history_fetch_retries = max(
+            get_config(
+                _config,
+                "history_fetch_retries",
+                self.history_fetch_retries,
+                int,
+            ),
+            1,
         )
         clash_config = _config.get("clash", {})
         if isinstance(clash_config, dict):
@@ -729,6 +780,30 @@ class Application:
                         continue
 
                     chat_id = chat["chat_id"]
+                    persisted_scan_finished = bool(chat.get("scan_finished", False))
+                    completed_legacy_range = bool(
+                        chat.get("end_offset_id", 0)
+                        and chat.get("last_read_message_id", 0)
+                        >= chat.get("end_offset_id", 0)
+                    )
+                    completed_legacy_direct = bool(
+                        chat.get("recover_only", False)
+                        and not chat.get("ids_to_retry", [])
+                    )
+                    if (
+                        chat.get("bot_task", False)
+                        and not chat.get("ids_to_retry", [])
+                        and (
+                            persisted_scan_finished
+                            or completed_legacy_range
+                            or completed_legacy_direct
+                        )
+                    ):
+                        logger.info(
+                            "Ignoring completed bot recovery task: chat_id={}",
+                            chat_id,
+                        )
+                        continue
                     if chat_id not in self.chat_download_config:
                         self.chat_download_config[chat_id] = ChatDownloadConfig()
 
@@ -742,6 +817,12 @@ class Application:
                     chat_download_config.recover_only = chat.get(
                         "recover_only", chat_download_config.is_bot_task
                     )
+                    chat_download_config.scan_finished = persisted_scan_finished
+                    if (
+                        chat_download_config.scan_finished
+                        and chat_download_config.ids_to_retry
+                    ):
+                        chat_download_config.recover_only = True
                     chat_download_config.bot_from_user_id = chat.get(
                         "bot_from_user_id"
                     )
@@ -750,6 +831,12 @@ class Application:
                     )
                     chat_download_config.bot_reply_message = chat.get(
                         "bot_reply_message", ""
+                    )
+                    chat_download_config.bot_command_message_id = chat.get(
+                        "bot_command_message_id", 0
+                    )
+                    chat_download_config.bot_command_message = chat.get(
+                        "bot_command_message", ""
                     )
                     chat_download_config.download_filter = chat.get(
                         "download_filter", chat_download_config.download_filter
@@ -797,7 +884,8 @@ class Application:
         elif self.cloud_drive_config.upload_adapter == "aligo":
             ret = await self.loop.run_in_executor(
                 self.executor,
-                CloudDrive.aligo_upload_file(
+                functools.partial(
+                    CloudDrive.aligo_upload_file,
                     self.cloud_drive_config, self.save_path, local_file_path
                 ),
             )
@@ -937,7 +1025,7 @@ class Application:
                 if value.node.download_status.get(
                     it, DownloadStatus.FailedDownload
                 ) in [DownloadStatus.SuccessDownload, DownloadStatus.SkipDownload]:
-                    unfinished_ids.remove(it)
+                    unfinished_ids.discard(it)
 
             for _idx, _value in value.node.download_status.items():
                 if _value not in (
@@ -946,7 +1034,7 @@ class Application:
                 ):
                     unfinished_ids.add(_idx)
 
-            self.chat_download_config[key].ids_to_retry = list(unfinished_ids)
+            self.chat_download_config[key].ids_to_retry = sorted(unfinished_ids)
 
             if value.finish_task and key in config_chat_map:
                 config_chat_map[key]["last_read_message_id"] = (
@@ -963,9 +1051,12 @@ class Application:
                     {
                         "bot_task": True,
                         "recover_only": value.recover_only,
+                        "scan_finished": value.scan_finished,
                         "bot_from_user_id": value.bot_from_user_id,
                         "bot_reply_message_id": value.bot_reply_message_id,
                         "bot_reply_message": value.bot_reply_message,
+                        "bot_command_message_id": value.bot_command_message_id,
+                        "bot_command_message": value.bot_command_message,
                         "download_filter": value.download_filter,
                         "last_read_message_id": value.last_read_message_id,
                         "limit": value.limit,
@@ -1002,12 +1093,8 @@ class Application:
         self.config["group_add_advertisement"] = self.group_add_advertisement
 
         if immediate:
-            with open(self.config_file, "w", encoding="utf-8") as yaml_file:
-                _yaml.dump(self.config, yaml_file)
-
-        if immediate:
-            with open(self.app_data_file, "w", encoding="utf-8") as yaml_file:
-                _yaml.dump(self.app_data, yaml_file)
+            _write_yaml_atomic(self.config_file, self.config)
+            _write_yaml_atomic(self.app_data_file, self.app_data)
 
     def set_language(self, language: Language):
         """Set Language"""
@@ -1167,3 +1254,22 @@ class Application:
             download_config.ids_to_retry = [
                 it for it in download_config.ids_to_retry if it != message_id
             ]
+
+    def forget_bot_download_task(self, node: TaskNode) -> bool:
+        """Remove a stopped/completed bot task from restart recovery state."""
+        download_config = self.chat_download_config.get(node.chat_id)
+        if (
+            not download_config
+            or not download_config.is_bot_task
+            or download_config.node is not node
+        ):
+            return False
+
+        self.chat_download_config.pop(node.chat_id, None)
+        self.update_config(True)
+        logger.info(
+            "Removed bot task from recovery state: task_id={}, chat_id={}",
+            node.task_id,
+            node.chat_id,
+        )
+        return True

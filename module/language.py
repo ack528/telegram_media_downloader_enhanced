@@ -376,6 +376,7 @@ zh_translations = {
     "No Task": "没有任务",
     "Please select:": "请选择：",
     "all": "全部",
+    "Original download command": "原下载命令",
 }
 
 

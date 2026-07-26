@@ -89,18 +89,38 @@ class DownloadBot:
 
     def remove_task_node(self, task_id: int):
         """Remove task node"""
-        self.task_node.pop(task_id)
+        self.task_node.pop(task_id, None)
 
-    def stop_task(self, task_id: str):
+    def get_active_download_task(self, chat_id):
+        """Return the active download task owning a chat, if any."""
+        for node in self.task_node.values():
+            if (
+                node.task_type is TaskType.Download
+                and node.chat_id == chat_id
+                and not node.is_finish()
+            ):
+                return node
+        return None
+
+    def _stop_node(self, node: TaskNode, forget: bool = True):
+        """Stop a node, optionally preventing it from returning after restart."""
+        node.stop_transmission()
+        if forget and self.app:
+            self.app.forget_bot_download_task(node)
+
+    def stop_task(self, task_id: str, forget: bool = True):
         """Stop task"""
         if task_id == "all":
-            for value in self.task_node.values():
-                value.stop_transmission()
+            for key, value in list(self.task_node.items()):
+                self._stop_node(value, forget)
+                self.remove_task_node(key)
         else:
             try:
-                task = self.task_node.get(int(task_id))
+                numeric_task_id = int(task_id)
+                task = self.task_node.get(numeric_task_id)
                 if task:
-                    task.stop_transmission()
+                    self._stop_node(task, forget)
+                    self.remove_task_node(numeric_task_id)
             except Exception:
                 return
 
@@ -121,6 +141,7 @@ class DownloadBot:
         """Persist a bot-created download task for restart recovery."""
         chat_download_config.is_bot_task = True
         chat_download_config.recover_only = recover_only
+        chat_download_config.scan_finished = node.scan_finished
         chat_download_config.bot_from_user_id = node.from_user_id
         chat_download_config.bot_reply_message_id = node.reply_message_id
         chat_download_config.bot_reply_message = node.reply_message or ""
@@ -153,12 +174,46 @@ class DownloadBot:
         notify_user_id = from_user_id or chat_download_config.bot_from_user_id
         notify_user_id = notify_user_id or self.get_default_notify_user_id()
         last_reply_message = None
+        command_message_id = chat_download_config.bot_command_message_id
+        command_message_text = chat_download_config.bot_command_message
+
+        # Backward compatibility for tasks persisted before the original
+        # command fields existed: recover the replied-to message from the old
+        # bot status message when Telegram still has it.
+        if (
+            not command_message_id
+            and notify_user_id
+            and self.bot
+            and chat_download_config.bot_reply_message_id
+        ):
+            try:
+                old_status = await self.bot.get_messages(
+                    notify_user_id,
+                    chat_download_config.bot_reply_message_id,
+                )
+                candidate = getattr(old_status, "reply_to_message_id", 0)
+                if not candidate:
+                    replied_message = getattr(old_status, "reply_to_message", None)
+                    candidate = getattr(replied_message, "id", 0)
+                if isinstance(candidate, int) and candidate > 0:
+                    command_message_id = candidate
+                    chat_download_config.bot_command_message_id = candidate
+            except Exception as exc:
+                logger.debug(
+                    "Could not recover original bot command reference: {}", exc
+                )
 
         if notify_user_id and self.bot:
+            send_kwargs = {
+                "parse_mode": pyrogram.enums.ParseMode.DISABLED,
+            }
+            if command_message_id:
+                send_kwargs["reply_to_message_id"] = command_message_id
             try:
                 last_reply_message = await self.bot.send_message(
                     notify_user_id,
                     reply_message,
+                    **send_kwargs,
                 )
                 logger.info(
                     "Created bot status message: chat_id={}, notify_user_id={}, "
@@ -168,11 +223,39 @@ class DownloadBot:
                     last_reply_message.id,
                 )
             except Exception as exc:
-                logger.warning(
-                    "Failed to create bot status message for chat_id={}: {}",
-                    chat_id,
-                    exc,
-                )
+                # The source command may have been deleted.  Preserve its text
+                # in the recovery notification instead of losing all context.
+                if command_message_id:
+                    fallback_text = reply_message
+                    if command_message_text:
+                        fallback_text += (
+                            f"\n\n{_t('Original download command')}:\n"
+                            f"{command_message_text}"
+                        )
+                    try:
+                        last_reply_message = await self.bot.send_message(
+                            notify_user_id,
+                            fallback_text,
+                            parse_mode=pyrogram.enums.ParseMode.DISABLED,
+                        )
+                        logger.warning(
+                            "Original command reply failed for chat_id={}; "
+                            "sent recovery status without a reply: {}",
+                            chat_id,
+                            exc,
+                        )
+                    except Exception as fallback_exc:
+                        logger.warning(
+                            "Failed to create bot status message for chat_id={}: {}",
+                            chat_id,
+                            fallback_exc,
+                        )
+                else:
+                    logger.warning(
+                        "Failed to create bot status message for chat_id={}: {}",
+                        chat_id,
+                        exc,
+                    )
         else:
             logger.warning(
                 "Skip bot status message: chat_id={}, notify_user_id={}, bot_ready={}",
@@ -198,8 +281,11 @@ class DownloadBot:
         chat_download_config.bot_reply_message_id = node.reply_message_id
         chat_download_config.bot_reply_message = reply_message
         chat_download_config.node = node
-        if node.bot:
-            self.add_task_node(node)
+        # Task control must not depend on whether the optional status message
+        # was sent successfully. Otherwise /stop cannot see a running recovery.
+        self.add_task_node(node)
+        if self.app:
+            self.app.update_config(True)
         return node
 
     async def update_reply_message(self):
@@ -212,6 +298,8 @@ class DownloadBot:
 
                 for key, value in self.task_node.copy().items():
                     if value.is_running and value.is_finish():
+                        if self.app:
+                            self.app.forget_bot_download_task(value)
                         self.remove_task_node(key)
             except Exception as exc:
                 logger.warning("Bot status loop failed: {}", exc)
@@ -238,7 +326,7 @@ class DownloadBot:
         """Update config from str."""
         self.config["download_filter"] = self.download_filter
 
-        with open("d", "w", encoding="utf-8") as yaml_file:
+        with open(self.config_path, "w", encoding="utf-8") as yaml_file:
             self._yaml.dump(self.config, yaml_file)
 
     async def start(
@@ -445,7 +533,8 @@ async def stop_download_bot():
     _bot.is_running = False
     if _bot.reply_task:
         _bot.reply_task.cancel()
-    _bot.stop_task("all")
+    # Application shutdown must preserve unfinished ids for the next start.
+    _bot.stop_task("all", forget=False)
     if _bot.bot:
         await _bot.bot.stop()
     if _bot.monitor_task:
@@ -923,6 +1012,15 @@ async def direct_download(
 ):
     """Direct Download"""
 
+    active_task = download_bot.get_active_download_task(chat_id)
+    if active_task:
+        await download_bot.bot.send_message(
+            message.from_user.id,
+            f"Chat already has active download task ID: {active_task.task_id}",
+            reply_to_message_id=message.id,
+        )
+        return
+
     replay_message = "直接下载中..."
     last_reply_message = await download_bot.bot.send_message(
         message.from_user.id, replay_message, reply_to_message_id=message.id
@@ -942,6 +1040,12 @@ async def direct_download(
 
     chat_download_config = ChatDownloadConfig()
     chat_download_config.last_read_message_id = download_message.id
+    chat_download_config.bot_command_message_id = message.id
+    chat_download_config.bot_command_message = (
+        getattr(message, "text", None)
+        or getattr(message, "caption", None)
+        or ""
+    )
     logger.bind(console=True).info(
         "收到单条媒体下载任务：chat_id={}，消息 ID {}。",
         chat_id,
@@ -956,6 +1060,9 @@ async def direct_download(
         node,
     )
 
+    node.scan_finished = True
+    chat_download_config.scan_finished = True
+    download_bot.app.update_config(True)
     node.is_running = True
 
 
@@ -1086,12 +1193,20 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
             await client.send_message(
                 message.from_user.id, err, reply_to_message_id=message.id
             )
-            return
+            return None
     try:
         chat_id, _, _ = await parse_link(_bot.client, url)
         if chat_id:
             entity = await _bot.client.get_chat(chat_id)
         if entity:
+            active_task = _bot.get_active_download_task(entity.id)
+            if active_task:
+                await client.send_message(
+                    message.from_user.id,
+                    f"Chat already has active download task ID: {active_task.task_id}",
+                    reply_to_message_id=message.id,
+                )
+                return
             chat_title = entity.title
             reply_message = f"来自 {chat_title} "
             chat_download_config = ChatDownloadConfig()
@@ -1100,6 +1215,8 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
             chat_download_config.limit = limit
             chat_download_config.start_offset_id = start_offset_id
             chat_download_config.end_offset_id = end_offset_id
+            chat_download_config.bot_command_message_id = message.id
+            chat_download_config.bot_command_message = message.text or ""
             reply_message += f"下载消息 ID = {start_offset_id} - {end_offset_id}！"
             last_reply_message = await client.send_message(
                 message.from_user.id, reply_message, reply_to_message_id=message.id
@@ -1203,6 +1320,7 @@ async def get_forward_task_node(
             await client.send_message(
                 message.from_user.id, err, reply_to_message_id=message.id
             )
+            return None
 
     last_reply_message = await client.send_message(
         message.from_user.id,
@@ -1233,6 +1351,7 @@ async def get_forward_task_node(
         )
 
     _bot.add_task_node(node)
+    node.is_running = True
 
     node.upload_user = _bot.client
     if not dst_chat.type is pyrogram.enums.ChatType.BOT:
@@ -1362,8 +1481,9 @@ async def forward_normal_content(
     if caption and _bot.app.is_match_advertisement(caption):
         forward_ret = ForwardStatus.SkipForward
         if message.media_group_id:
-            # TODO
             node.upload_status[message.id] = UploadStatus.SkipUpload
+            await proc_cache_forward(_bot.client, node, message, False, _bot.app)
+        await report_bot_forward_status(client, node, forward_ret)
         return
 
     if node.download_filter:
@@ -1557,21 +1677,21 @@ async def stop_task(
                 ],
             )
             await client.edit_message_text(
-                query.message.from_user.id,
+                query.message.chat.id,
                 query.message.id,
                 f"{_t('Stop')} {_t(task_type.name)}...",
                 reply_markup=InlineKeyboardMarkup(buttons),
             )
         else:
             await client.edit_message_text(
-                query.message.from_user.id,
+                query.message.chat.id,
                 query.message.id,
                 f"{_t('No Task')}",
             )
     else:
         task_id = query.data.split(" ")[2]
         await client.edit_message_text(
-            query.message.from_user.id,
+            query.message.chat.id,
             query.message.id,
             f"{_t('Stop')} {_t(task_type.name)}...",
         )

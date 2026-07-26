@@ -17,6 +17,7 @@ from module.app import Application, ChatDownloadConfig, DownloadStatus, TaskNode
 from module.bot import get_download_bot, start_download_bot, stop_download_bot
 from module.clash_controller import ClashController
 from module.download_stat import (
+    finish_download_status,
     get_active_download_count,
     get_total_download_speed,
     update_download_status,
@@ -70,6 +71,7 @@ DOWNLOAD_RETRY_COUNT = 5
 DOWNLOAD_CHUNK_SIZE = 1024 * 1024
 LOW_SPEED_MONITOR_INTERVAL = 5
 DOWNLOAD_HEARTBEAT_INTERVAL = 60
+NETWORK_RECHECK_INTERVAL = 5
 _clash_switch_event = asyncio.Event()
 _clash_switch_reason: Optional[str] = None
 
@@ -91,6 +93,59 @@ def request_clash_switch(reason: str):
     logger.warning("Network issue detected; scheduled Clash node switch: {}", reason)
 
 
+def _is_network_error(exc: BaseException) -> bool:
+    """Return whether an exception is consistent with lost connectivity."""
+    if isinstance(exc, (ConnectionError, asyncio.TimeoutError, TimeoutError)):
+        return True
+    if isinstance(exc, OSError) and "incomplete download" not in str(exc).lower():
+        return True
+
+    error_text = f"{type(exc).__name__}: {exc}".lower()
+    return any(
+        marker in error_text
+        for marker in (
+            "connection lost",
+            "connection reset",
+            "connection refused",
+            "network is unreachable",
+            "no route to host",
+            "name or service not known",
+            "temporary failure in name resolution",
+            "proxy",
+            "timed out",
+            "timeout",
+        )
+    )
+
+
+async def _telegram_is_online(client: pyrogram.Client) -> bool:
+    """Probe Telegram without treating protocol/data errors as disconnection."""
+    try:
+        await asyncio.wait_for(client.get_me(), timeout=10)
+        return True
+    except Exception as exc:
+        return not _is_network_error(exc)
+
+
+async def _wait_for_network_recovery(
+    client: pyrogram.Client, reason: str, node: Optional[TaskNode] = None
+) -> bool:
+    """Pause a download while Telegram is unreachable, preserving its partial file."""
+    request_clash_switch(reason)
+    logger.warning("Telegram is offline; preserving partial download and waiting")
+    while (
+        app.is_running
+        and not (node and node.is_stop_transmission)
+        and not await _telegram_is_online(client)
+    ):
+        await asyncio.sleep(NETWORK_RECHECK_INTERVAL)
+    if not app.is_running or (node and node.is_stop_transmission):
+        logger.info("Network wait cancelled because the download task stopped")
+        return False
+    logger.info("Telegram connectivity restored; resuming download")
+    return True
+
+
 def _check_download_finish(media_size: int, download_path: str, ui_file_name: str):
     """Check download task if finish
 
@@ -105,7 +160,7 @@ def _check_download_finish(media_size: int, download_path: str, ui_file_name: st
 
     """
     download_size = os.path.getsize(download_path)
-    if media_size == download_size:
+    if media_size <= 0 or media_size == download_size:
         logger.bind(console=True).success(
             f"{_t('Successfully downloaded')} - {ui_file_name}"
         )
@@ -273,8 +328,10 @@ def _can_download(_type: str, file_formats: dict, file_format: Optional[str]) ->
         True if the file format can be downloaded else False.
     """
     if _type in ["audio", "document", "video"]:
-        allowed_formats: list = file_formats[_type]
-        if not file_format in allowed_formats and allowed_formats[0] != "all":
+        allowed_formats = file_formats.get(_type, ["all"])
+        if not allowed_formats:
+            return False
+        if file_format not in allowed_formats and allowed_formats[0] != "all":
             return False
     return True
 
@@ -555,60 +612,77 @@ async def download_task(
         message.id,
     )
 
-    download_status, file_name = await download_media(
-        client, message, app.media_types, app.file_formats, node
-    )
+    download_status = None
+    try:
+        download_status, file_name = await download_media(
+            client, message, app.media_types, app.file_formats, node
+        )
 
-    if app.enable_download_txt and message.text and not message.media:
-        download_status, file_name = await save_msg_to_file(app, node.chat_id, message)
+        if app.enable_download_txt and message.text and not message.media:
+            download_status, file_name = await save_msg_to_file(
+                app, node.chat_id, message
+            )
 
-    app.set_download_id(node, message.id, download_status)
+        app.set_download_id(node, message.id, download_status)
 
-    node.download_status[message.id] = download_status
-    app.mark_download_finished(node, message.id, download_status)
-    app.update_config(True)
+        node.download_status[message.id] = download_status
+        app.mark_download_finished(node, message.id, download_status)
+        app.update_config(True)
 
-    file_size = os.path.getsize(file_name) if file_name else 0
+        file_size = os.path.getsize(file_name) if file_name else 0
 
-    await upload_telegram_chat(
-        client,
-        node.upload_user if node.upload_user else client,
-        app,
-        node,
-        message,
-        download_status,
-        file_name,
-    )
+        await upload_telegram_chat(
+            client,
+            node.upload_user if node.upload_user else client,
+            app,
+            node,
+            message,
+            download_status,
+            file_name,
+        )
 
-    # rclone upload
-    if (
-        not node.upload_telegram_chat_id
-        and download_status is DownloadStatus.SuccessDownload
-    ):
-        ui_file_name = file_name
-        if app.hide_file_name:
-            ui_file_name = f"****{os.path.splitext(file_name)[-1]}"
-        if await app.upload_file(
-            file_name, update_cloud_upload_stat, (node, message.id, ui_file_name)
+        # rclone upload
+        if (
+            not node.upload_telegram_chat_id
+            and download_status is DownloadStatus.SuccessDownload
         ):
-            node.upload_success_count += 1
+            ui_file_name = file_name
+            if app.hide_file_name:
+                ui_file_name = f"****{os.path.splitext(file_name)[-1]}"
+            if await app.upload_file(
+                file_name, update_cloud_upload_stat, (node, message.id, ui_file_name)
+            ):
+                node.upload_success_count += 1
 
-    await report_bot_download_status(
-        node.bot,
-        node,
-        download_status,
-        file_size,
-    )
-    logger.debug(
-        "Download task finished: task_id={}, chat_id={}, message_id={}, status={}, "
-        "file_size={}, elapsed={:.1f}s",
-        node.task_id,
-        node.chat_id,
-        message.id,
-        download_status.name,
-        file_size,
-        time.time() - task_started_at,
-    )
+        finish_download_status(
+            node.chat_id,
+            message.id,
+            download_status is DownloadStatus.SuccessDownload,
+        )
+        await report_bot_download_status(
+            node.bot,
+            node,
+            download_status,
+            file_size,
+        )
+        if not message.media_group_id:
+            node.download_status.pop(message.id, None)
+        logger.debug(
+            "Download task finished: task_id={}, chat_id={}, message_id={}, status={}, "
+            "file_size={}, elapsed={:.1f}s",
+            node.task_id,
+            node.chat_id,
+            message.id,
+            download_status.name,
+            file_size,
+            time.time() - task_started_at,
+        )
+    finally:
+        finish_download_status(
+            node.chat_id,
+            message.id,
+            download_status is DownloadStatus.SuccessDownload,
+        )
 
 
 # pylint: disable = R0915,R0914
@@ -661,17 +735,27 @@ async def download_media(
     task_start_time: float = time.time()
     media_size = 0
     _media = None
-    try:
-        message = await fetch_message(client, message)
-    except Exception as e:
-        request_clash_switch(f"message {getattr(message, 'id', '?')} fetch failed")
-        logger.warning(
-            "Message[{}]: fetch failed after retries, mark as failed and keep "
-            "for recovery: {}",
-            getattr(message, "id", "?"),
-            e,
-        )
-        return DownloadStatus.FailedDownload, None
+    while True:
+        try:
+            message = await fetch_message(client, message)
+            break
+        except Exception as e:
+            if not await _telegram_is_online(client):
+                recovered = await _wait_for_network_recovery(
+                    client,
+                    f"message {getattr(message, 'id', '?')} fetch failed",
+                    node,
+                )
+                if recovered:
+                    continue
+                return DownloadStatus.FailedDownload, None
+            logger.warning(
+                "Message[{}]: skipped because metadata fetch repeatedly failed "
+                "while Telegram is online: {}",
+                getattr(message, "id", "?"),
+                e,
+            )
+            return DownloadStatus.SkipDownload, None
 
     try:
         for _type in media_types:
@@ -721,7 +805,8 @@ async def download_media(
         display_file_name,
     )
 
-    for retry in range(DOWNLOAD_RETRY_COUNT):
+    retry = 0
+    while retry < DOWNLOAD_RETRY_COUNT:
         try:
             temp_download_path = await _download_media_with_resume(
                 client,
@@ -757,6 +842,13 @@ async def download_media(
                 f"{_t('retrying after')} {RETRY_TIME_OUT} {_t('seconds')}: {e}"
             )
         except Exception as e:
+            if not await _telegram_is_online(client):
+                await _wait_for_network_recovery(
+                    client, f"message {message.id} download interrupted", node
+                )
+                if not app.is_running or node.is_stop_transmission:
+                    return DownloadStatus.FailedDownload, None
+                continue
             logger.warning(
                 "Message[{}]: download interrupted on attempt {}/{}: {}",
                 message.id,
@@ -765,18 +857,25 @@ async def download_media(
                 e,
             )
 
-        if retry + 1 >= DOWNLOAD_RETRY_COUNT:
+        retry += 1
+        if retry >= DOWNLOAD_RETRY_COUNT:
             break
 
-        await asyncio.sleep(RETRY_TIME_OUT * (retry + 1))
+        await asyncio.sleep(RETRY_TIME_OUT * retry)
         try:
             message = await fetch_message(client, message)
         except Exception as e:
-            request_clash_switch(f"message {message.id} refetch failed")
+            if not await _telegram_is_online(client):
+                recovered = await _wait_for_network_recovery(
+                    client, f"message {message.id} refetch failed", node
+                )
+                if recovered:
+                    continue
+                return DownloadStatus.FailedDownload, None
             logger.warning(
                 "Message[{}]: refetch failed before retry {}/{}: {}",
                 message.id,
-                retry + 2,
+                retry + 1,
                 DOWNLOAD_RETRY_COUNT,
                 e,
             )
@@ -786,7 +885,13 @@ async def download_media(
             break
         media_size = getattr(_media, "file_size", media_size)
 
-    return DownloadStatus.FailedDownload, None
+    _cleanup_stale_temp_files(temp_file_name)
+    logger.warning(
+        "Message[{}]: skipped after {} failures; removed partial temp files",
+        message.id,
+        DOWNLOAD_RETRY_COUNT,
+    )
+    return DownloadStatus.SkipDownload, None
 
 
 def _load_config():
@@ -883,6 +988,8 @@ async def worker(client: pyrogram.client.Client):
                             node.bot, node, DownloadStatus.FailedDownload
                         )
                     app.update_config(True)
+                    if not message.media_group_id:
+                        node.download_status.pop(message.id, None)
                 except Exception as update_error:
                     logger.warning("Failed to persist worker failure: {}", update_error)
         finally:
@@ -922,12 +1029,18 @@ async def download_chat_task(
         )
 
         for message in skipped_messages:
+            if node.is_stop_transmission:
+                break
             await wait_for_scan_prefetch_window(chat_download_config, node)
+            if node.is_stop_transmission:
+                break
             await add_download_task(message, node)
 
     if chat_download_config.recover_only:
         chat_download_config.need_check = True
         chat_download_config.total_task = node.total_task
+        chat_download_config.scan_finished = True
+        node.scan_finished = True
         node.is_running = True
         logger.info(
             "Recovery-only task queued: task_id={}, chat_id={}, total_task={}",
@@ -940,6 +1053,13 @@ async def download_chat_task(
     queued_before_history = node.total_task
     try:
         async for message in messages_iter:  # type: ignore
+            if node.is_stop_transmission:
+                logger.info(
+                    "Stopped chat scan: task_id={}, chat_id={}",
+                    node.task_id,
+                    node.chat_id,
+                )
+                break
             meta_data = MetaData()
 
             caption = message.caption
@@ -958,6 +1078,8 @@ async def download_chat_task(
 
             if app.exec_filter(chat_download_config, meta_data):
                 await wait_for_scan_prefetch_window(chat_download_config, node)
+                if node.is_stop_transmission:
+                    break
                 await add_download_task(message, node)
             else:
                 node.download_status[message.id] = DownloadStatus.SkipDownload
@@ -971,11 +1093,14 @@ async def download_chat_task(
                         DownloadStatus.SkipDownload,
                     )
     except Exception as exc:
-        request_clash_switch(
-            f"chat history failed: chat_id={node.chat_id}, "
-            f"last_read_message_id={chat_download_config.last_read_message_id}"
-        )
+        if not await _telegram_is_online(client):
+            request_clash_switch(
+                f"chat history failed while offline: chat_id={node.chat_id}, "
+                f"last_read_message_id={chat_download_config.last_read_message_id}"
+            )
         chat_download_config.need_check = True
+        chat_download_config.scan_finished = False
+        node.scan_finished = False
         node.is_running = False
         logger.exception(
             "Read chat history failed: task_id={}, chat_id={}, "
@@ -989,6 +1114,8 @@ async def download_chat_task(
 
     chat_download_config.need_check = True
     chat_download_config.total_task = node.total_task
+    chat_download_config.scan_finished = True
+    node.scan_finished = True
     node.is_running = True
     if node.total_task == queued_before_history:
         logger.info(
