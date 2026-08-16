@@ -1054,10 +1054,16 @@ class Application:
                         "scan_finished": value.scan_finished,
                         "bot_from_user_id": value.bot_from_user_id,
                         "bot_reply_message_id": value.bot_reply_message_id,
-                        "bot_reply_message": value.bot_reply_message,
+                        "bot_reply_message": str(value.bot_reply_message or ""),
                         "bot_command_message_id": value.bot_command_message_id,
-                        "bot_command_message": value.bot_command_message,
-                        "download_filter": value.download_filter,
+                        "bot_command_message": str(
+                            value.bot_command_message or ""
+                        ),
+                        "download_filter": (
+                            str(value.download_filter)
+                            if value.download_filter is not None
+                            else None
+                        ),
                         "last_read_message_id": value.last_read_message_id,
                         "limit": value.limit,
                         "start_offset_id": value.start_offset_id,

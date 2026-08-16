@@ -1,4 +1,6 @@
 """Tests for download recovery state."""
+import os
+import tempfile
 import unittest
 from unittest import mock
 
@@ -6,6 +8,35 @@ from module.app import Application, ChatDownloadConfig, DownloadStatus, TaskNode
 
 
 class TestDownloadRecoveryState(unittest.TestCase):
+    def test_update_config_serializes_pyrogram_string_subclasses(self):
+        class PyrogramText(str):
+            """Approximate the special string type used by Pyrogram."""
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_file = os.path.join(temp_dir, "config.yaml")
+            data_file = os.path.join(temp_dir, "data.yaml")
+            app = Application(config_file, data_file)
+            app.config = {"chat": []}
+            app.app_data = {}
+            node = TaskNode(chat_id=-100456)
+            download_config = ChatDownloadConfig()
+            download_config.is_bot_task = True
+            download_config.node = node
+            download_config.bot_command_message = PyrogramText(
+                "/download https://t.me/COSAVMY 1 9200"
+            )
+            download_config.bot_reply_message = PyrogramText("downloading")
+            download_config.download_filter = PyrogramText("video")
+            app.chat_download_config[node.chat_id] = download_config
+
+            app.update_config(True)
+
+            persisted = app.app_data["chat"][0]
+            self.assertIs(type(persisted["bot_command_message"]), str)
+            self.assertIs(type(persisted["bot_reply_message"]), str)
+            self.assertIs(type(persisted["download_filter"]), str)
+            self.assertTrue(os.path.exists(data_file))
+
     def test_pending_download_is_removed_when_finished(self):
         app = Application("config.yaml", "data.yaml")
         node = TaskNode(chat_id="chat")

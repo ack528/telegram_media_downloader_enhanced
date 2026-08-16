@@ -1048,7 +1048,9 @@ async def direct_download(
     chat_download_config = ChatDownloadConfig()
     chat_download_config.last_read_message_id = download_message.id
     chat_download_config.bot_command_message_id = message.id
-    chat_download_config.bot_command_message = (
+    # Pyrogram uses a str subclass for text/captions.  Convert it to a plain
+    # built-in str before the recovery state is serialized by ruamel.yaml.
+    chat_download_config.bot_command_message = str(
         getattr(message, "text", None)
         or getattr(message, "caption", None)
         or ""
@@ -1223,7 +1225,9 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
             chat_download_config.start_offset_id = start_offset_id
             chat_download_config.end_offset_id = end_offset_id
             chat_download_config.bot_command_message_id = message.id
-            chat_download_config.bot_command_message = message.text or ""
+            # Pyrogram's message text is a str subclass which ruamel.yaml
+            # cannot represent.  Recovery state must contain plain scalars.
+            chat_download_config.bot_command_message = str(message.text or "")
             reply_message += f"下载消息 ID = {start_offset_id} - {end_offset_id}！"
             last_reply_message = await client.send_message(
                 message.from_user.id, reply_message, reply_to_message_id=message.id
