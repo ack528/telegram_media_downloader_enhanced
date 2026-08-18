@@ -2,6 +2,7 @@
 
 import os
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -69,3 +70,28 @@ class AppTestCase(unittest.TestCase):
         app.update_config()
         mock_write_yaml.assert_any_call("config_test.yaml", app.config)
         mock_write_yaml.assert_any_call("data_test.yaml", app.app_data)
+
+    @mock.patch("module.app.time.sleep")
+    def test_atomic_yaml_write_retries_access_denied(self, mock_sleep):
+        original_replace = os.replace
+        replace_calls = 0
+
+        def deny_once(source, target):
+            nonlocal replace_calls
+            replace_calls += 1
+            if replace_calls == 1:
+                raise PermissionError(5, "Access is denied", target)
+            original_replace(source, target)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            yaml_path = os.path.join(temp_dir, "config.yaml")
+            with mock.patch("module.app.os.replace", side_effect=deny_once):
+                module.app._write_yaml_atomic(yaml_path, {"chat": []})
+
+            self.assertTrue(os.path.exists(yaml_path))
+            self.assertEqual(replace_calls, 2)
+            mock_sleep.assert_called_once_with(0.05)
+            self.assertEqual(
+                [item for item in os.listdir(temp_dir) if item.endswith(".tmp")],
+                [],
+            )

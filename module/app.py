@@ -4,12 +4,14 @@ import asyncio
 import functools
 import os
 import sys
+import tempfile
 import time
 from asyncio import Lock
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from threading import RLock
 from typing import Callable, List, Optional, Union
 
 from loguru import logger
@@ -22,6 +24,8 @@ from utils.format import replace_date_time, validate_title
 from utils.meta_data import MetaData
 
 _yaml = yaml.YAML()
+_yaml_write_lock = RLock()
+_YAML_REPLACE_RETRY_DELAYS = (0.05, 0.1, 0.2, 0.4, 0.8)
 BOT_STATUS_REPLY_INTERVAL = 15.0
 # pylint: disable = R0902
 
@@ -34,13 +38,48 @@ def get_runtime_base_path() -> str:
 
 
 def _write_yaml_atomic(file_path: str, data):
-    """Write YAML without leaving a truncated recovery/config file on a crash."""
-    temp_path = f"{file_path}.tmp"
-    with open(temp_path, "w", encoding="utf-8") as yaml_file:
-        _yaml.dump(data, yaml_file)
-        yaml_file.flush()
-        os.fsync(yaml_file.fileno())
-    os.replace(temp_path, file_path)
+    """Atomically write YAML while tolerating transient Windows file locks."""
+    directory = os.path.dirname(os.path.abspath(file_path)) or "."
+    prefix = f".{os.path.basename(file_path)}."
+
+    # A fixed ``config.yaml.tmp`` lets concurrent writers overwrite each
+    # other.  A unique temporary file and a process-wide lock avoid that race.
+    with _yaml_write_lock:
+        file_descriptor, temp_path = tempfile.mkstemp(
+            prefix=prefix, suffix=".tmp", dir=directory, text=True
+        )
+        try:
+            with os.fdopen(file_descriptor, "w", encoding="utf-8") as yaml_file:
+                _yaml.dump(data, yaml_file)
+                yaml_file.flush()
+                os.fsync(yaml_file.fileno())
+
+            for attempt, delay in enumerate(
+                (*_YAML_REPLACE_RETRY_DELAYS, None), start=1
+            ):
+                try:
+                    os.replace(temp_path, file_path)
+                    return
+                except PermissionError:
+                    if delay is None:
+                        raise
+                    logger.warning(
+                        "YAML file is temporarily locked; retrying replace "
+                        "({}/{}): {}",
+                        attempt,
+                        len(_YAML_REPLACE_RETRY_DELAYS) + 1,
+                        file_path,
+                    )
+                    time.sleep(delay)
+        finally:
+            # ``os.replace`` consumes the temporary file on success.  On a
+            # YAML error or a persistent external lock, do not leave stale
+            # *.tmp files that can confuse manual recovery.
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
 
 
 class DownloadStatus(Enum):
@@ -424,6 +463,7 @@ class Application:
         self.restart_program = False
         self.config: dict = {}
         self.app_data: dict = {}
+        self._config_update_lock = RLock()
         self.file_path_prefix: List[str] = ["chat_title", "media_datetime"]
         self.file_name_prefix: List[str] = ["message_id", "file_name"]
         self.file_name_prefix_split: str = " - "
@@ -1005,13 +1045,18 @@ class Application:
 
     # pylint: disable = R0912
     def update_config(self, immediate: bool = True):
-        """update config
+        """Update config and recovery data without concurrent state writes.
 
         Parameters
         ----------
         immediate: bool
             If update config immediate,default True
         """
+        with self._config_update_lock:
+            self._update_config_locked(immediate)
+
+    def _update_config_locked(self, immediate: bool = True):
+        """Build and persist config state. Caller must hold the update lock."""
         self.app_data["chat"] = []
         config_chat_map = {
             chat.get("chat_id"): chat for chat in self.config.get("chat", [])

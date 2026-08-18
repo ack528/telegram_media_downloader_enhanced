@@ -1,6 +1,6 @@
 """Init namespace"""
 
-__version__ = "3.1.17"
+__version__ = "3.1.18"
 __license__ = "MIT License"
 __copyright__ = (
     "Copyright (C) 2026 Telegram Media Downloader Enhanced contributors "
