@@ -29,6 +29,7 @@ from module.pyrogram_extension import (
     HookClient,
     fetch_message,
     get_extension,
+    parse_link,
     record_download_status,
     report_bot_download_status,
     set_max_concurrent_transmissions,
@@ -91,6 +92,73 @@ def request_clash_switch(reason: str):
     _clash_switch_reason = reason
     _clash_switch_event.set()
     logger.warning("Network issue detected; scheduled Clash node switch: {}", reason)
+
+
+async def restore_bot_task_peer(
+    client: pyrogram.Client,
+    expected_chat_id: Union[int, str],
+    chat_download_config: ChatDownloadConfig,
+) -> bool:
+    """Restore the source chat peer for a persisted bot download task.
+
+    Pyrogram stores a channel's access hash in its local session database. A
+    saved task used to keep only the numeric channel ID, so after a restart a
+    fresh session could not resolve that ID and recovery failed with
+    ``CHANNEL_INVALID``. Bot tasks also retain the original /download command;
+    resolve its link once before requesting history to repopulate the peer
+    cache.
+    """
+    command = str(chat_download_config.bot_command_message or "")
+    link = next(
+        (
+            item
+            for item in command.split()
+            if item.startswith(("https://t.me/", "http://t.me/", "t.me/"))
+        ),
+        None,
+    )
+    if not link:
+        logger.debug(
+            "Recovered bot task has no original link; chat_id={}", expected_chat_id
+        )
+        return False
+
+    try:
+        source_chat_id, _, _ = await parse_link(client, link)
+        if not source_chat_id:
+            logger.warning(
+                "Could not parse original bot task link; chat_id={}, link={}",
+                expected_chat_id,
+                link,
+            )
+            return False
+
+        source_chat = await client.get_chat(source_chat_id)
+        actual_chat_id = getattr(source_chat, "id", source_chat_id)
+        if str(actual_chat_id) != str(expected_chat_id):
+            logger.warning(
+                "Recovered bot task link points to a different chat; saved_chat_id={}, "
+                "link_chat_id={}",
+                expected_chat_id,
+                actual_chat_id,
+            )
+            return False
+
+        logger.info(
+            "Restored source chat peer from original bot command: chat_id={}",
+            actual_chat_id,
+        )
+        return True
+    except Exception as exc:
+        # Retain legacy recovery behavior for private/expired/unavailable links.
+        # The normal history request will still report its original error.
+        logger.warning(
+            "Could not restore source chat peer from original bot command; "
+            "chat_id={}, error={}",
+            expected_chat_id,
+            exc,
+        )
+        return False
 
 
 def _is_network_error(exc: BaseException) -> bool:
@@ -1193,6 +1261,8 @@ async def download_all_chat(client: pyrogram.Client):
                 download_filter=value.download_filter,
             )
         try:
+            if value.is_bot_task:
+                await restore_bot_task_peer(client, key, value)
             logger.info(
                 "Start chat download task: task_id={}, chat_id={}, recover_only={}, "
                 "pending_ids={}",

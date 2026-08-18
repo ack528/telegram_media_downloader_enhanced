@@ -21,10 +21,11 @@ from media_downloader import (
     download_media,
     download_task,
     main,
+    restore_bot_task_peer,
     save_msg_to_file,
     worker,
 )
-from module.app import Application, DownloadStatus, TaskNode
+from module.app import Application, ChatDownloadConfig, DownloadStatus, TaskNode
 from module.cloud_drive import CloudDriveConfig
 from module.language import _t
 from module.pyrogram_extension import (
@@ -881,6 +882,22 @@ class MediaDownloaderTestCase(unittest.TestCase):
         app.chat_download_config[8654123].download_filter = "id != 1213"
         self.loop.run_until_complete(download_all_chat(client))
         moc_put.assert_called()
+
+    def test_restore_bot_task_peer_from_original_command(self):
+        client = mock.AsyncMock()
+        client.get_chat.return_value = mock.Mock(id=-1002085377814)
+        download_config = ChatDownloadConfig()
+        download_config.is_bot_task = True
+        download_config.bot_command_message = (
+            "/download https://t.me/example_channel 1 9200"
+        )
+
+        restored = self.loop.run_until_complete(
+            restore_bot_task_peer(client, -1002085377814, download_config)
+        )
+
+        self.assertTrue(restored)
+        client.get_chat.assert_awaited_once_with("example_channel")
 
     def test_can_download(self):
         file_formats = {

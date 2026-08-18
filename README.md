@@ -70,7 +70,7 @@
 
 ## Windows 快速开始
 
-1. 从 [最新 Release](https://github.com/ack528/telegram_media_downloader_enhanced/releases/latest) 下载 `tdl-v3.1.18-fixed.exe`。
+1. 从 [最新 Release](https://github.com/ack528/telegram_media_downloader_enhanced/releases/latest) 下载 `tdl-v3.1.19-fixed.exe`。
 2. 将 EXE 放到一个固定目录，并在同一目录准备 `config.yaml`。
 3. 首次运行后按提示完成 Telegram 登录；`*.session` 文件会保存在程序目录。
 4. 后续升级只替换 EXE，不要删除 `config.yaml`、`data.yaml`、`sessions`、`temp` 和下载目录。
