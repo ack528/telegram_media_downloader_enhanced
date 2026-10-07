@@ -70,3 +70,16 @@ config.yaml
 data.yaml
 *.scss
 *.css.map
+
+# Local tooling and desktop build output
+.venv-peer-fix/
+.pyrogram-patch-src/
+.claude/
+PixPin_*.png
+!desktop/src/lib/
+desktop/node_modules/
+desktop/dist/
+desktop/release/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/src-tauri/binaries/

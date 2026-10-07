@@ -16,6 +16,15 @@ from rich.logging import RichHandler
 from module.app import Application, ChatDownloadConfig, DownloadStatus, TaskNode
 from module.bot import get_download_bot, start_download_bot, stop_download_bot
 from module.clash_controller import ClashController
+from module.desktop import (
+    DesktopRuntime,
+    DownloadHistory,
+    configure_desktop_stdio,
+    is_desktop_mode,
+    register_desktop_api,
+    TOKEN_ENV,
+)
+from module.fast_download import CdnRedirect, close_pool, iter_file_parallel
 from module.download_stat import (
     finish_download_status,
     get_active_download_count,
@@ -24,7 +33,13 @@ from module.download_stat import (
 )
 from module.get_chat_history_v2 import get_chat_history_v2
 from module.language import _t
-from module.network_watchdog import bump_network_epoch, get_network_epoch
+from module.network_watchdog import (
+    bump_network_epoch,
+    get_network_epoch,
+    network_wait_finished,
+    network_wait_started,
+    record_route_switch,
+)
 from module.pyrogram_extension import (
     HookClient,
     fetch_message,
@@ -38,20 +53,31 @@ from module.pyrogram_extension import (
     update_cloud_upload_stat,
     upload_telegram_chat,
 )
-from module.web import init_web
+from module.web import get_flask_app, init_web
 from utils.format import format_byte, truncate_filename, validate_title
 from utils.log import LogFilter, disable_quick_edit_mode
 from utils.meta import print_meta
 from utils.meta_data import MetaData
 
 logger.remove()
-logger.add(
-    sys.stderr,
-    level="INFO",
-    format="<green>{time:HH:mm:ss}</green> | <level>{message}</level>",
-    filter=lambda record: record["extra"].get("console")
-    or record["level"].no >= logger.level("WARNING").no,
-)
+if is_desktop_mode():
+    configure_desktop_stdio()
+    # The desktop log view filters by level itself, so stream every INFO
+    # record with a parseable level column and no ANSI colors.
+    logger.add(
+        sys.stderr,
+        level="INFO",
+        colorize=False,
+        format="{time:HH:mm:ss} | {level} | {message}",
+    )
+else:
+    logger.add(
+        sys.stderr,
+        level="INFO",
+        format="<green>{time:HH:mm:ss}</green> | <level>{message}</level>",
+        filter=lambda record: record["extra"].get("console")
+        or record["level"].no >= logger.level("WARNING").no,
+    )
 logging.basicConfig(
     level=logging.WARNING,
     format="%(message)s",
@@ -65,6 +91,7 @@ CONFIG_NAME = "config.yaml"
 DATA_FILE_NAME = "data.yaml"
 APPLICATION_NAME = "media_downloader"
 app = Application(CONFIG_NAME, DATA_FILE_NAME, APPLICATION_NAME)
+app.keep_alive = is_desktop_mode()
 
 queue: asyncio.Queue = asyncio.Queue()
 RETRY_TIME_OUT = 3
@@ -81,6 +108,11 @@ logging.getLogger("pyrogram.client").addFilter(LogFilter())
 logging.getLogger("pyrogram").addFilter(LogFilter())
 
 logging.getLogger("pyrogram").setLevel(logging.WARNING)
+
+download_history = DownloadHistory(app.base_path, enabled=is_desktop_mode())
+desktop_runtime = DesktopRuntime(
+    app, download_history, queue.qsize, lambda *args: download_chat_task(*args)
+)
 
 
 def request_clash_switch(reason: str):
@@ -201,12 +233,16 @@ async def _wait_for_network_recovery(
     """Pause a download while Telegram is unreachable, preserving its partial file."""
     request_clash_switch(reason)
     logger.warning("Telegram is offline; preserving partial download and waiting")
-    while (
-        app.is_running
-        and not (node and node.is_stop_transmission)
-        and not await _telegram_is_online(client)
-    ):
-        await asyncio.sleep(NETWORK_RECHECK_INTERVAL)
+    network_wait_started()
+    try:
+        while (
+            app.is_running
+            and not (node and node.is_stop_transmission)
+            and not await _telegram_is_online(client)
+        ):
+            await asyncio.sleep(NETWORK_RECHECK_INTERVAL)
+    finally:
+        network_wait_finished()
     if not app.is_running or (node and node.is_stop_transmission):
         logger.info("Network wait cancelled because the download task stopped")
         return False
@@ -597,6 +633,53 @@ async def save_msg_to_file(
     return DownloadStatus.SuccessDownload, file_name
 
 
+async def _media_stream(
+    client: pyrogram.client.Client,
+    file_id_obj: FileId,
+    media_size: int,
+    offset: int,
+    progress,
+    progress_args: tuple,
+    network_epoch: int,
+):
+    """Yield file parts in order, in parallel when configured.
+
+    Files served through a Telegram CDN fall back to Pyrogram's downloader,
+    continuing from the last part already yielded.
+    """
+    if app.download_threads > 1 or app.download_connections > 1:
+        stream = iter_file_parallel(
+            client,
+            file_id_obj,
+            media_size,
+            offset,
+            connections=app.download_connections,
+            threads=app.download_threads,
+            max_in_flight=app.download_max_in_flight,
+            progress=progress,
+            progress_args=progress_args,
+            epoch=network_epoch,
+        )
+        try:
+            async for chunk in stream:
+                offset += 1
+                yield chunk
+            return
+        except CdnRedirect:
+            logger.info("File is served via CDN; using the standard downloader")
+        finally:
+            await stream.aclose()
+
+    stream = client.get_file(
+        file_id_obj, media_size, 0, offset, progress, progress_args
+    )
+    try:
+        async for chunk in stream:
+            yield chunk
+    finally:
+        await stream.aclose()
+
+
 async def _download_media_with_resume(
     client: pyrogram.client.Client,
     media_obj,
@@ -625,13 +708,14 @@ async def _download_media_with_resume(
     offset = resume_size // DOWNLOAD_CHUNK_SIZE
 
     network_epoch = get_network_epoch()
-    file_stream = client.get_file(
+    file_stream = _media_stream(
+        client,
         file_id_obj,
         media_size,
-        0,
         offset,
         progress,
         progress_args,
+        network_epoch,
     )
 
     try:
@@ -680,6 +764,15 @@ async def download_task(
         message.id,
     )
 
+    if not node.chat_title:
+        chat = getattr(message, "chat", None)
+        node.chat_title = str(
+            getattr(chat, "title", None)
+            or getattr(chat, "first_name", None)
+            or getattr(chat, "username", None)
+            or ""
+        )
+
     download_status = None
     try:
         download_status, file_name = await download_media(
@@ -698,6 +791,16 @@ async def download_task(
         app.update_config(True)
 
         file_size = os.path.getsize(file_name) if file_name else 0
+        desktop_runtime.remember_chat_title(node.chat_id, message)
+        download_history.record(
+            node,
+            message,
+            download_status,
+            file_name,
+            file_size,
+            task_started_at,
+            app.hide_file_name,
+        )
 
         await upload_telegram_chat(
             client,
@@ -993,6 +1096,7 @@ def _check_config() -> bool:
         logger.info(
             "Runtime options: version={}, language={}, bot_enabled={}, "
             "max_download_task={}, max_concurrent_transmissions={}, "
+            "download_threads={}, download_connections={}, download_max_in_flight={}, "
             "download_stall_timeout={}s, history_fetch_timeout={}s, "
             "history_fetch_retries={}, scan_prefetch_limit={}, clash_enabled={}",
             __import__("utils").__version__,
@@ -1000,6 +1104,9 @@ def _check_config() -> bool:
             bool(app.bot_token),
             app.max_download_task,
             app.max_concurrent_transmissions,
+            app.download_threads,
+            app.download_connections,
+            app.download_max_in_flight,
             app.download_stall_timeout,
             app.history_fetch_timeout,
             app.history_fetch_retries,
@@ -1083,6 +1190,9 @@ async def download_chat_task(
     )
 
     chat_download_config.node = node
+    node.scan_message_id = max(
+        node.scan_message_id, chat_download_config.last_read_message_id or 0
+    )
 
     if chat_download_config.ids_to_retry:
         logger.info(
@@ -1128,6 +1238,7 @@ async def download_chat_task(
                     node.chat_id,
                 )
                 break
+            node.scan_message_id = message.id
             meta_data = MetaData()
 
             caption = message.caption
@@ -1291,7 +1402,10 @@ async def run_until_all_task_finish():
             if not value.need_check or value.total_task != value.finish_task:
                 finish = False
 
-        if (not app.bot_token and finish) or app.restart_program:
+        if app.shutdown_requested:
+            break
+
+        if (not app.bot_token and not app.keep_alive and finish) or app.restart_program:
             break
 
         await asyncio.sleep(1)
@@ -1363,6 +1477,7 @@ async def monitor_low_download_speed():
 
         if result:
             bump_network_epoch()
+            record_route_switch(result.selector, result.node, result.delay)
             logger.warning(
                 "Switched Clash selector {} to {} ({} ms); active downloads will retry",
                 result.selector,
@@ -1410,6 +1525,7 @@ async def stop_server(client: pyrogram.Client):
     """
     Stop the server using the provided client.
     """
+    await close_pool(client)
     await client.stop()
 
 
@@ -1427,6 +1543,12 @@ def main():
     )
     try:
         app.pre_run()
+        if is_desktop_mode():
+            # Routes must exist before the Flask thread serves its first request.
+            desktop_runtime.client = client
+            register_desktop_api(
+                get_flask_app(), desktop_runtime, os.environ.get(TOKEN_ENV, "")
+            )
         init_web(app)
 
         set_max_concurrent_transmissions(client, app.max_concurrent_transmissions)
@@ -1440,6 +1562,9 @@ def main():
             )
             logger.bind(console=True).success("机器人已启动，等待命令。")
 
+        desktop_runtime.ready = True
+        if is_desktop_mode():
+            tasks.append(app.loop.create_task(desktop_runtime.reap_finished_tasks()))
         app.loop.create_task(download_all_chat(client))
         logger.bind(console=True).success("软件启动完成，下载工作线程已就绪。")
         tasks.append(app.loop.create_task(monitor_low_download_speed()))

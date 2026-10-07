@@ -127,6 +127,17 @@ clash:
 
 `api_id` 和 `api_hash` 可在 [Telegram API](https://my.telegram.org/apps) 获取。请勿把真实的 `api_hash`、机器人 Token、会话文件或含私人频道信息的配置提交到公开仓库。
 
+## 桌面版（TDL Desktop）
+
+`desktop/` 目录是基于 Tauri 2 的桌面客户端，内置本引擎，提供：
+
+- 可视化编辑 config.yaml 的全部常用参数（保存时自动备份，并保留引擎推进的下载进度）。
+- 实时仪表盘（速度曲线、进行中下载、任务进度）与统计看板（每日下载量、频道排行、媒体类型、活跃时段）。
+- 新建 / 停止下载任务、Telegram 登录弹窗、Clash 节点测速与切换、日志查看。
+- 系统托盘、开机自启、任务完成通知、按时间段下载与磁盘空间保护。
+
+桌面版可以直接选择旧版 tdl.exe 所在文件夹作为工作目录继续使用。开发与构建方法见 [desktop/README.md](desktop/README.md)。
+
 ## 机器人常用命令
 
 - `/download`：查看下载用法或创建下载任务。

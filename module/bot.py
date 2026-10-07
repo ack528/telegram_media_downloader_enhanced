@@ -1244,6 +1244,7 @@ async def download_from_bot(client: pyrogram.Client, message: pyrogram.types.Mes
                 bot=_bot.bot,
                 task_id=_bot.gen_task_id(),
             )
+            node.chat_title = str(chat_title or "")
             logger.bind(console=True).info(
                 "收到机器人下载任务：chat_id={}, 消息范围 {}-{}，正在扫描并边扫描边下载。",
                 entity.id,

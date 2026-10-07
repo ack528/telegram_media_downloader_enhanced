@@ -32,6 +32,11 @@ BOT_STATUS_REPLY_INTERVAL = 15.0
 
 def get_runtime_base_path() -> str:
     """Return the directory used for config, data, and default output paths."""
+    # The desktop shell runs the engine against a user-selected workspace
+    # instead of the directory that happens to contain the executable.
+    override = os.environ.get("TDL_BASE_PATH")
+    if override:
+        return os.path.abspath(override)
     if getattr(sys, "frozen", False):
         return os.path.dirname(sys.executable)
     return os.path.abspath(".")
@@ -196,6 +201,8 @@ class TaskNode:
         topic_id: int = 0,
     ):
         self.chat_id = chat_id
+        # Display name for status messages; filled in once known.
+        self.chat_title: str = ""
         self.from_user_id = from_user_id
         self.upload_telegram_chat_id = upload_telegram_chat_id
         self.reply_message_id = reply_message_id
@@ -235,6 +242,8 @@ class TaskNode:
         self.reply_to_message = None
         self.cloud_drive_upload_stat_dict: dict = {}
         self.scan_finished: bool = False
+        # Last message id reached by the chat scan (status messages).
+        self.scan_message_id: int = 0
 
     def skip_msg_id(self, msg_id: int):
         """Skip if message id out of range"""
@@ -446,6 +455,10 @@ class Application:
         self.application_name: str = application_name
         self.download_filter = Filter()
         self.is_running = True
+        # Desktop mode keeps the engine alive for new tasks and exits only
+        # when the shell requests a graceful shutdown.
+        self.keep_alive = False
+        self.shutdown_requested = False
 
         self.total_download_task = 0
 
@@ -474,6 +487,11 @@ class Application:
         self.caption_name_dict: dict = {}
         self.caption_entities_dict: dict = {}
         self.max_concurrent_transmissions: int = 1
+        # Parallel download: parts in flight per file and connections per DC
+        # (see module/fast_download.py).  1/1 means Pyrogram's own downloader.
+        self.download_threads: int = 4
+        self.download_connections: int = 2
+        self.download_max_in_flight: int = 8
         self.download_stall_timeout: int = 90
         self.history_fetch_timeout: int = 60
         self.history_fetch_retries: int = 3
@@ -592,6 +610,12 @@ class Application:
         )
         self.web_host = _config.get("web_host", self.web_host)
         self.web_port = _config.get("web_port", self.web_port)
+        # The desktop shell may move the API to a free port without touching
+        # the user's config file.
+        if os.environ.get("TDL_WEB_HOST"):
+            self.web_host = os.environ["TDL_WEB_HOST"]
+        if os.environ.get("TDL_WEB_PORT", "").isdigit():
+            self.web_port = int(os.environ["TDL_WEB_PORT"])
 
         # TODO: add check if expression exist syntax error
 
@@ -623,6 +647,28 @@ class Application:
                 int,
             ),
             self.max_download_task,
+        )
+        self.download_threads = min(
+            max(get_config(_config, "download_threads", self.download_threads, int), 1),
+            16,
+        )
+        self.download_connections = min(
+            max(
+                get_config(
+                    _config, "download_connections", self.download_connections, int
+                ),
+                1,
+            ),
+            16,
+        )
+        self.download_max_in_flight = min(
+            max(
+                get_config(
+                    _config, "download_max_in_flight", self.download_max_in_flight, int
+                ),
+                1,
+            ),
+            32,
         )
         self.download_stall_timeout = max(
             get_config(

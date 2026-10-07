@@ -25,7 +25,32 @@ class FakeBotClient:
         return True
 
 
+class RejectHtmlBotClient(FakeBotClient):
+    async def edit_message_text(self, chat_id, message_id, text, **kwargs):
+        if kwargs.get("parse_mode") is pyrogram.enums.ParseMode.HTML:
+            raise pyrogram.errors.exceptions.bad_request_400.BadRequest(
+                "ENTITY_BOUNDS_INVALID"
+            )
+        return await super().edit_message_text(chat_id, message_id, text, **kwargs)
+
+
 class BotStatusTestCase(unittest.IsolatedAsyncioTestCase):
+    async def test_rejected_html_falls_back_to_plain_text(self):
+        client = RejectHtmlBotClient()
+        node = TaskNode(
+            chat_id="chat", from_user_id=1, reply_message_id=2, bot=True, task_id=3
+        )
+
+        updated = await _edit_bot_status_message(
+            client, node, "<b>下载任务 #3</b> a &lt;b&gt;", use_html=True
+        )
+
+        self.assertTrue(updated)
+        self.assertEqual(client.messages[0][2], "下载任务 #3 a <b>")
+        self.assertIs(
+            client.messages[0][3]["parse_mode"], pyrogram.enums.ParseMode.DISABLED
+        )
+
     async def test_report_bot_status_records_last_edit_after_success(self):
         client = FakeBotClient()
         node = TaskNode(
@@ -42,12 +67,11 @@ class BotStatusTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(node.last_edit_msg, client.messages[0][2])
         self.assertIs(
             client.messages[0][3]["parse_mode"],
-            pyrogram.enums.ParseMode.DISABLED,
+            pyrogram.enums.ParseMode.HTML,
         )
-        self.assertFalse(node.last_edit_msg.startswith("`"))
-        self.assertIn("\u66f4\u65b0\u65f6\u95f4:", node.last_edit_msg)
-        self.assertIn("Clash \u4e0b\u8f7d\u901f\u5ea6:", node.last_edit_msg)
-        self.assertIn("\u8f6f\u4ef6\u603b\u4e0b\u8f7d\u901f\u5ea6:", node.last_edit_msg)
+        self.assertIn("\u4efb\u52a1 #1", node.last_edit_msg)
+        self.assertIn("\u66f4\u65b0</i>", node.last_edit_msg)
+        self.assertIn("\u26a1", node.last_edit_msg)
 
     async def test_edit_bot_status_timeout_does_not_record_success(self):
         client = FakeBotClient(delay=0.05)

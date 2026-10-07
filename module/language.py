@@ -24,6 +24,27 @@ def set_language(language: Language):
 
 
 translations = {
+    # Bot task status message (module/bot_status.py)
+    "Task": ["任务", "Задача", "Завдання"],
+    "Completed": ["已完成", "Завершено", "Завершено"],
+    "Waiting for network": ["等待网络恢复", "Ожидание сети", "Очікування мережі"],
+    "Paused": ["已暂停", "Пауза", "Пауза"],
+    "Scanning": ["扫描中", "Сканирование", "Сканування"],
+    "In progress": ["下载中", "Загрузка", "Завантаження"],
+    "Message {pos}/{end} · {pct}%": [
+        "消息 {pos}/{end} · {pct}%",
+        "Сообщение {pos}/{end} · {pct}%",
+        "Повідомлення {pos}/{end} · {pct}%",
+    ],
+    "Scanned to message {pos}": [
+        "已扫描到消息 {pos}",
+        "Просмотрено до сообщения {pos}",
+        "Переглянуто до повідомлення {pos}",
+    ],
+    "Proxy {speed}": ["代理总 {speed}", "Прокси {speed}", "Проксі {speed}"],
+    "Updated {time}": ["{time} 更新", "Обновлено {time}", "Оновлено {time}"],
+    "{eta} left":["剩余 {eta}", "осталось {eta}", "залишилось {eta}"],
+    "Untitled": ["未命名", "Без названия", "Без назви"],
     "Forward": ["转发", "Переслать", "Переслати"],
     "Total": ["总数", "Всего", "Всього"],
     "Success": ["成功", "Успешно", "Успішно"],

@@ -1,0 +1,25 @@
+TDL Desktop 绿色版
+==================
+
+本文件存在时，TDL Desktop 以绿色模式运行：
+配置、登录会话、断点续传的临时文件、日志、下载统计以及桌面端自身的数据
+都保存在本文件夹中，不写入 AppData。
+
+  TDL Desktop.exe   桌面程序，双击运行
+  tdl.exe           下载引擎（由桌面程序自动启动，无需手动运行）
+
+运行后本文件夹中会出现：
+  config.yaml / data.yaml   引擎配置与恢复状态
+  sessions\                 Telegram 登录会话（请勿分享）
+  temp\  log\  stats\       临时文件、日志、下载统计
+  downloads\                默认下载目录（可在「下载 → 保存位置」修改）
+  backups\                  config.yaml 自动备份
+  desktop-data\             桌面端设置与界面缓存
+
+从旧版 tdl.exe 升级：把 TDL Desktop.exe、tdl.exe 和本文件复制到原来的程序文件夹即可，
+原有的 config.yaml、会话和未完成的下载都会继续使用。
+
+升级 TDL Desktop：退出程序后替换两个 exe 文件，保留其他文件。
+删除本文件后，程序改为把数据保存在「文档\TDL Desktop」和用户目录中。
+
+需要 Microsoft Edge WebView2 运行时（Windows 10/11 通常已自带）。

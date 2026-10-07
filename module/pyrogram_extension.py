@@ -3,6 +3,7 @@
 import asyncio
 import html
 import os
+import re
 import secrets
 import struct
 import time
@@ -37,16 +38,23 @@ from module.app import (
     UploadProgressStat,
     UploadStatus,
 )
+from module.bot_status import (
+    CloudUpload,
+    FileProgress,
+    MAX_FILES,
+    render_task_status,
+)
 from module.clash_controller import ClashController
-from module.download_stat import get_download_result, get_total_download_speed
+from module.download_stat import (
+    DownloadState,
+    get_download_result,
+    get_download_state,
+    get_total_download_speed,
+)
+from module.network_watchdog import is_waiting_for_network
 from module.language import Language, _t
 from module.send_media_group_v2 import cache_media, send_media_group_v2
-from utils.format import (
-    create_progress_bar,
-    extract_info_from_link,
-    format_byte,
-    truncate_filename,
-)
+from utils.format import extract_info_from_link
 from utils.meta_data import MetaData
 
 _mimetypes = MimeTypes()
@@ -111,13 +119,6 @@ async def _get_cached_clash_download_speed():
         )
 
     return _status_clash_traffic_cache["down"]
-
-
-def _format_speed(speed):
-    """Format an optional speed value."""
-    if speed is None:
-        return _t("Unavailable")
-    return f"{format_byte(speed)}/s"
 
 
 def reset_download_cache():
@@ -1154,30 +1155,49 @@ async def report_bot_status(
         logger.debug(f"{e}")
 
 
+def _html_to_plain(text: str) -> str:
+    """Strip the status message's HTML tags for the plain-text fallback."""
+    return html.unescape(re.sub(r"</?[a-z]+>", "", text))
+
+
 async def _edit_bot_status_message(
     client: pyrogram.Client,
     node: TaskNode,
     message_text: str,
+    use_html: bool = False,
 ) -> bool:
     """Edit bot status without blocking the status loop forever."""
-    message_text = _truncate_utf16_text(
-        message_text, BOT_STATUS_MAX_UTF16_UNITS
-    )
+    parse_mode = pyrogram.enums.ParseMode.HTML if use_html else None
+    if use_html and get_utf16_length(message_text) > BOT_STATUS_MAX_UTF16_UNITS:
+        # Never cut through an HTML tag: fall back to truncated plain text.
+        message_text, parse_mode = _html_to_plain(message_text), None
+    if parse_mode is None:
+        # Filenames are user-controlled and may contain Markdown delimiters.
+        # Plain text avoids invalid entity ranges.
+        parse_mode = pyrogram.enums.ParseMode.DISABLED
+        message_text = _truncate_utf16_text(
+            message_text, BOT_STATUS_MAX_UTF16_UNITS
+        )
     try:
         await asyncio.wait_for(
             client.edit_message_text(
                 node.from_user_id,
                 node.reply_message_id,
                 message_text,
-                # Filenames are user-controlled and may contain Markdown
-                # delimiters.  Plain text avoids invalid entity ranges.
-                parse_mode=pyrogram.enums.ParseMode.DISABLED,
+                parse_mode=parse_mode,
             ),
             timeout=BOT_STATUS_EDIT_TIMEOUT,
         )
         return True
     except pyrogram.errors.exceptions.bad_request_400.MessageNotModified:
         return True
+    except pyrogram.errors.exceptions.bad_request_400.BadRequest as exc:
+        if parse_mode is pyrogram.enums.ParseMode.HTML:
+            logger.warning("HTML bot status rejected ({}); retrying as plain text", exc)
+            return await _edit_bot_status_message(
+                client, node, _html_to_plain(message_text)
+            )
+        logger.warning("Bot status update failed: {}", exc)
     except pyrogram.errors.exceptions.flood_420.FloodWait as wait_err:
         wait_seconds = max(int(getattr(wait_err, "value", 0)), 0)
         node.last_reply_time = (
@@ -1217,117 +1237,73 @@ async def _report_bot_status(
     if not node.reply_message_id or not node.bot:
         return
 
-    if immediate_reply or node.can_reply():
-        if node.upload_telegram_chat_id:
-            node.forward_msg_detail_str = (
-                f"\n🔄 {_t('Forward')}\n"
-                f"├─ 📁 {_t('Total')}: {node.total_forward_task}\n"
-                f"├─ ✅ {_t('Success')}: {node.success_forward_task}\n"
-                f"├─ ❌ {_t('Failed')}: {node.failed_forward_task}\n"
-                f"└─ ⏩ {_t('Skipped')}: {node.skip_forward_task}\n"
+    if not (immediate_reply or node.can_reply()):
+        return
+
+    downloads: List[FileProgress] = []
+    messages = get_download_result().get(node.chat_id, {})
+    active = [
+        (idx, value)
+        for idx, value in list(messages.items())
+        if value.get("task_id") == node.task_id
+        and value.get("down_byte", 0) < value.get("total_size", 0)
+        and not value.get("terminal", False)
+    ]
+    # Show the most recently active files, listed in a stable order.
+    active.sort(key=lambda item: item[1].get("end_time", 0), reverse=True)
+    for idx, value in sorted(active[:MAX_FILES], key=lambda item: item[0]):
+        downloads.append(
+            FileProgress(
+                message_id=idx,
+                name=value.get("file_name", ""),
+                total=value.get("total_size", 0),
+                done=value.get("down_byte", 0),
+                speed=value.get("download_speed", 0),
             )
-
-        upload_msg_detail_str: str = ""
-
-        if node.upload_success_count:
-            upload_msg_detail_str = (
-                f"\n☁️ {_t('Upload')}\n"
-                f"└─ ✅ {_t('Success')}: {node.upload_success_count}\n"
-            )
-
-        for idx, value in node.cloud_drive_upload_stat_dict.items():
-            if value.transferred == value.total:
-                continue
-
-            temp_file_name = truncate_filename(os.path.basename(value.file_name), 10)
-            upload_msg_detail_str += (
-                f" ├─ 🆔 {_t('Message ID')}: {idx}\n"
-                f" │   ├─ 📁 : {temp_file_name}\n"
-                f" │   ├─ 📏 : {value.total}\n"
-                f" │   ├─ ⏫ : {value.speed}\n"
-                f" │   └─ 📊 : ["
-                f'{create_progress_bar(int(value.percentage.split("%")[0]))}]'
-                f" ({value.percentage})%\n"
-            )
-
-        download_result_str = ""
-        download_result = get_download_result()
-        if node.chat_id in download_result:
-            messages = download_result[node.chat_id]
-            active_messages = [
-                (idx, value)
-                for idx, value in messages.items()
-                if value["task_id"] == node.task_id
-                and value["down_byte"] < value["total_size"]
-                and not value.get("terminal", False)
-            ]
-            active_messages.sort(
-                key=lambda item: item[1].get("end_time", 0), reverse=True
-            )
-            for idx, value in active_messages[:5]:
-                task_id = value["task_id"]
-                if task_id != node.task_id or value["down_byte"] == value["total_size"]:
-                    continue
-
-                temp_file_name = truncate_filename(
-                    os.path.basename(value["file_name"]), 10
-                )
-                progress = int(value["down_byte"] / value["total_size"] * 100)
-                download_result_str += (
-                    f" ├─ 🆔 {_t('Message ID')}: {idx}\n"
-                    f" │   ├─ 📁 : {temp_file_name}\n"
-                    f" │   ├─ 📏 : {format_byte(value['total_size'])}\n"
-                    f" │   ├─ ⏬ : {format_byte(value['download_speed'])}/s\n"
-                    f" │   └─ 📊 : [{create_progress_bar(progress)}]"
-                    f" ({progress}%)\n"
-                )
-
-            if download_result_str:
-                download_result_str = (
-                    f"\n📥 {_t('Download Progresses')}:\n" + download_result_str
-                )
-
-        upload_result_str = ""
-        for idx, value in node.upload_stat_dict.items():
-            if value.total_size == value.upload_size:
-                continue
-
-            temp_file_name = truncate_filename(os.path.basename(value.file_name), 10)
-            progress = int(value.upload_size / value.total_size * 100)
-            upload_result_str += (
-                f" ├─ 🆔 {_t('Message ID')}: {idx}\n"
-                f" │   ├─ 📁 : {temp_file_name}\n"
-                f" │   ├─ 📏 : {format_byte(value.total_size)}\n"
-                f" │   ├─ ⏫ : {format_byte(value.upload_speed)}/s\n"
-                f" │   └─ 📊 : [{create_progress_bar(progress)}]"
-                f" ({progress}%)\n"
-            )
-
-        if upload_result_str:
-            upload_result_str = f"\n📤 {_t('Upload Progresses')}:\n" + upload_result_str
-
-        status_update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        clash_download_speed = _format_speed(await _get_cached_clash_download_speed())
-        software_download_speed = _format_speed(get_total_download_speed())
-        new_msg_str = (
-            f"🆔 {_t('Task ID')}: {node.task_id}\n"
-            f"{_t('Updated at')}: {status_update_time}\n"
-            f"{_t('Clash download speed')}: {clash_download_speed}\n"
-            f"{_t('Software total download speed')}: {software_download_speed}\n"
-            f"📥 {_t('Downloading')}: {format_byte(node.total_download_byte)}\n"
-            f"├─ 📁 {_t('Total')}: {node.total_download_task}\n"
-            f"├─ ✅ {_t('Success')}: {node.success_download_task}\n"
-            f"├─ ❌ {_t('Failed')}: {node.failed_download_task}\n"
-            f"└─ ⏩ {_t('Skipped')}: {node.skip_download_task}\n"
-            f"{node.forward_msg_detail_str}"
-            f"{upload_msg_detail_str}"
-            f"{upload_result_str}"
-            f"{download_result_str}"
         )
 
-        if new_msg_str != node.last_edit_msg:
-            if await _edit_bot_status_message(client, node, new_msg_str):
-                node.last_edit_msg = new_msg_str
+    uploads = [
+        FileProgress(
+            message_id=idx,
+            name=value.file_name,
+            total=value.total_size,
+            done=value.upload_size,
+            speed=value.upload_speed,
+        )
+        for idx, value in list(node.upload_stat_dict.items())
+        if value.total_size != value.upload_size
+    ][:MAX_FILES]
+    cloud_uploads = [
+        CloudUpload(
+            message_id=idx,
+            name=value.file_name,
+            total=value.total,
+            percentage=value.percentage,
+            speed=value.speed,
+            eta=value.eta,
+        )
+        for idx, value in list(node.cloud_drive_upload_stat_dict.items())
+        if value.transferred != value.total
+    ][:MAX_FILES]
+
+    clash_enabled = bool(
+        _status_clash_config and _status_clash_config.get("enabled", True)
+    )
+    new_msg_str = render_task_status(
+        node,
+        downloads=downloads,
+        uploads=uploads,
+        cloud_uploads=cloud_uploads,
+        software_speed=get_total_download_speed(),
+        clash_speed=await _get_cached_clash_download_speed(),
+        clash_enabled=clash_enabled,
+        paused=get_download_state() is DownloadState.StopDownload,
+        offline=is_waiting_for_network(),
+    )
+
+    if new_msg_str != node.last_edit_msg:
+        if await _edit_bot_status_message(client, node, new_msg_str, use_html=True):
+            node.last_edit_msg = new_msg_str
 
 
 def set_max_concurrent_transmissions(
