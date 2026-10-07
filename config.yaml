@@ -1,0 +1,39 @@
+api_hash: your_api_hash
+api_id: your_api_id
+language: ZH
+chat:
+- chat_id: telegram_chat_id
+  last_read_message_id: 0
+file_formats:
+  audio:
+  - all
+  document:
+  - all
+  video:
+  - all
+file_path_prefix:
+- chat_title
+- media_datetime
+media_types:
+- audio
+- photo
+- video
+- document
+- voice
+- video_note
+download_stall_timeout: 90
+history_fetch_timeout: 60
+history_fetch_retries: 3
+scan_prefetch_limit: 5
+clash:
+  enabled: true
+  controller: http://127.0.0.1:9097
+  secret: "999"
+  selector: ''
+  low_speed_kb: 100
+  low_speed_seconds: 60
+  switch_cooldown_seconds: 300
+  timeout_ms: 5000
+  test_url: https://www.gstatic.com/generate_204
+# in linux please use /
+# save_path: E:\github\telegram_media_downloader
