@@ -47,7 +47,7 @@ from module.bot_status import (
 from module.clash_controller import ClashController
 from module.download_stat import (
     DownloadState,
-    get_download_result,
+    get_download_result_snapshot,
     get_download_state,
     get_total_download_speed,
 )
@@ -1241,7 +1241,7 @@ async def _report_bot_status(
         return
 
     downloads: List[FileProgress] = []
-    messages = get_download_result().get(node.chat_id, {})
+    messages = get_download_result_snapshot().get(node.chat_id, {})
     active = [
         (idx, value)
         for idx, value in list(messages.items())

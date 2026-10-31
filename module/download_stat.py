@@ -3,6 +3,7 @@ import asyncio
 import threading
 import time
 from enum import Enum
+from time import monotonic
 
 from pyrogram import Client
 
@@ -17,12 +18,10 @@ class DownloadState(Enum):
 
 
 _download_result: dict = {}
-_total_download_speed: int = 0
-_total_download_size: int = 0
-_last_download_time: float = time.time()
 _download_state: DownloadState = DownloadState.Downloading
 _download_result_lock = threading.RLock()
 MAX_COMPLETED_RESULTS_PER_CHAT = 100
+SPEED_STALE_SECONDS = 3
 
 
 def get_download_result() -> dict:
@@ -31,22 +30,37 @@ def get_download_result() -> dict:
 
 
 def get_download_result_snapshot() -> dict:
-    """Return a thread-safe copy for the Flask worker thread."""
+    """Sample all displayed rates at one instant, excluding internal counters."""
     with _download_result_lock:
-        return {
-            chat_id: {
-                message_id: dict(value)
-                for message_id, value in messages.items()
-            }
-            for chat_id, messages in _download_result.items()
-        }
+        now = monotonic()
+        paused = _download_state is DownloadState.StopDownload
+        result = {}
+        for chat_id, messages in _download_result.items():
+            result[chat_id] = {}
+            for message_id, value in messages.items():
+                item = {
+                    key: field
+                    for key, field in value.items()
+                    if not key.startswith("_")
+                }
+                stale = now - value.get("_progress_time", now) >= SPEED_STALE_SECONDS
+                item["download_speed"] = (
+                    0
+                    if paused or stale or value.get("terminal", False)
+                    else max(int(value.get("download_speed") or 0), 0)
+                )
+                result[chat_id][message_id] = item
+        return result
 
 
 def get_total_download_speed() -> int:
-    """get total download speed"""
-    if time.time() - _last_download_time > 3:
-        return 0
-    return _total_download_speed
+    """Use the same active-file rates as the download list, not a second meter."""
+    return sum(
+        item["download_speed"]
+        for messages in get_download_result_snapshot().values()
+        for item in messages.values()
+        if not item.get("terminal", False)
+    )
 
 
 def get_active_download_count() -> int:
@@ -108,7 +122,16 @@ def get_download_state() -> DownloadState:
 def set_download_state(state: DownloadState):
     """set download state"""
     global _download_state
-    _download_state = state
+    with _download_result_lock:
+        if state is not _download_state:
+            now = monotonic()
+            for messages in _download_result.values():
+                for value in messages.values():
+                    value["download_speed"] = 0
+                    value["_sample_time"] = now
+                    value["_sample_bytes"] = value["down_byte"]
+                    value["_has_sample"] = False
+        _download_state = state
 
 
 async def update_download_status(
@@ -121,12 +144,6 @@ async def update_download_status(
     client: Client,
 ):
     """update_download_status"""
-    cur_time = time.time()
-    # pylint: disable = W0603
-    global _total_download_speed
-    global _total_download_size
-    global _last_download_time
-
     if node.is_stop_transmission:
         client.stop_transmission()
 
@@ -138,55 +155,52 @@ async def update_download_status(
         await asyncio.sleep(1)
 
     with _download_result_lock:
-        if not _download_result.get(chat_id):
-            _download_result[chat_id] = {}
-
-        if _download_result[chat_id].get(message_id):
-            last_download_byte = _download_result[chat_id][message_id]["down_byte"]
-            last_time = _download_result[chat_id][message_id]["end_time"]
-            download_speed = _download_result[chat_id][message_id]["download_speed"]
-            each_second_total_download = _download_result[chat_id][message_id][
-                "each_second_total_download"
-            ]
-            end_time = _download_result[chat_id][message_id]["end_time"]
-
-            _total_download_size += down_byte - last_download_byte
-            each_second_total_download += down_byte - last_download_byte
-
-            if cur_time - last_time >= 1.0:
-                download_speed = int(each_second_total_download / (cur_time - last_time))
-                end_time = cur_time
-                each_second_total_download = 0
-
-            download_speed = max(download_speed, 0)
-
-            _download_result[chat_id][message_id]["down_byte"] = down_byte
-            _download_result[chat_id][message_id]["end_time"] = end_time
-            _download_result[chat_id][message_id]["download_speed"] = download_speed
-            _download_result[chat_id][message_id][
-                "each_second_total_download"
-            ] = each_second_total_download
-        else:
-            each_second_total_download = down_byte
-            elapsed = max(cur_time - start_time, 0.001)
-            _download_result[chat_id][message_id] = {
+        now = monotonic()
+        cur_time = time.time()
+        messages = _download_result.setdefault(chat_id, {})
+        value = messages.get(message_id)
+        if (
+            not value
+            or "_sample_time" not in value
+            or value.get("terminal", False)
+            or value.get("task_id") != node.task_id
+            or value.get("start_time") != start_time
+            or down_byte <= value["down_byte"]
+        ):
+            # The first callback establishes the resume offset. Bytes already on
+            # disk (and a previous attempt's progress) are not network traffic.
+            messages[message_id] = {
                 "down_byte": down_byte,
                 "total_size": total_size,
                 "file_name": file_name,
                 "start_time": start_time,
                 "end_time": cur_time,
-                "download_speed": down_byte / elapsed,
-                "each_second_total_download": each_second_total_download,
+                "download_speed": 0,
                 "task_id": node.task_id,
                 "terminal": False,
+                "_sample_time": now,
+                "_sample_bytes": down_byte,
+                "_progress_time": now,
+                "_has_sample": False,
             }
-            _total_download_size += down_byte
+            return
 
-        if cur_time - _last_download_time >= 1.0:
-            # update speed
-            _total_download_speed = int(
-                _total_download_size / (cur_time - _last_download_time)
+        # Each file uses its own one-second sample; totals sum those exact
+        # samples. Monotonic time avoids spikes after system-clock changes.
+        elapsed = now - value["_sample_time"]
+        # Show a useful initial rate for files finishing in under a second,
+        # without including their pre-existing resume offset.
+        if elapsed > 0 and (elapsed >= 1 or not value.get("_has_sample", False)):
+            value["download_speed"] = max(
+                int((down_byte - value["_sample_bytes"]) / max(elapsed, 0.001)), 0
             )
-            _total_download_speed = max(_total_download_speed, 0)
-            _total_download_size = 0
-            _last_download_time = cur_time
+            if elapsed >= 1:
+                value["_sample_time"] = now
+                value["_sample_bytes"] = down_byte
+                value["_has_sample"] = True
+        value.update(
+            down_byte=down_byte,
+            total_size=total_size,
+            end_time=cur_time,
+            _progress_time=now,
+        )

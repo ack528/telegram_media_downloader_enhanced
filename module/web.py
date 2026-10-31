@@ -1,6 +1,7 @@
 """web ui for media download"""
 
 import logging
+import ntpath
 import os
 import secrets
 import threading
@@ -207,7 +208,7 @@ def get_download_list():
                 {
                     "chat": str(chat_id),
                     "id": str(idx),
-                    "filename": os.path.basename(value["file_name"]),
+                    "filename": ntpath.basename(value["file_name"]),
                     "total_size": format_byte(total_size),
                     "download_progress": str(progress),
                     "download_speed": download_speed,

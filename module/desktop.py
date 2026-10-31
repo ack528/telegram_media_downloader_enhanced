@@ -11,6 +11,7 @@ The Tauri desktop app starts the engine with ``TDL_DESKTOP=1`` and a random
 
 import asyncio
 import json
+import ntpath
 import os
 import sys
 import threading
@@ -35,7 +36,6 @@ from module.download_stat import (
     DownloadState,
     get_download_result_snapshot,
     get_download_state,
-    get_total_download_speed,
     set_download_state,
 )
 from module.network_watchdog import get_last_route_switch, is_waiting_for_network
@@ -408,7 +408,7 @@ class DesktopRuntime:
                         "chat": self.chat_titles.get(str(chat_id), str(chat_id)),
                         "message_id": message_id,
                         "task_id": value.get("task_id", 0),
-                        "file": os.path.basename(value.get("file_name", "")),
+                        "file": ntpath.basename(value.get("file_name", "")),
                         "total": total,
                         "done": done,
                         "speed": int(value.get("download_speed") or 0),
@@ -438,7 +438,9 @@ class DesktopRuntime:
             "uptime": int(time.time() - self.started_at),
             "paused": get_download_state() is DownloadState.StopDownload,
             "offline": is_waiting_for_network(),
-            "speed": get_total_download_speed(),
+            # Aggregate the same immutable snapshot rendered by the task page.
+            # Reading a second meter here can race with progress/completion.
+            "speed": sum(item["speed"] for item in downloads),
             "queue": self.queue_size(),
             "active_count": len(downloads),
             "downloads": downloads,

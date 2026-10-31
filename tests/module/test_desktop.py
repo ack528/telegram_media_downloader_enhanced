@@ -8,6 +8,7 @@ from unittest import mock
 from flask import Flask
 
 from module import bot as bot_module
+from module import download_stat
 from module.app import ChatDownloadConfig, DownloadStatus, TaskNode
 from module.desktop import (
     TOKEN_HEADER,
@@ -87,6 +88,37 @@ class DesktopRuntimeTestCase(unittest.TestCase):
 
     def tearDown(self):
         bot_module._bot.task_node = self._saved_nodes
+
+    def test_dashboard_speed_matches_file_snapshot_even_if_progress_changes(self):
+        runtime = _runtime()
+        entries = {
+            1: {"download_speed": 100, "total_size": 1000},
+            2: {"download_speed": 200, "total_size": 1000},
+            3: {"download_speed": 9999, "terminal": True},
+        }
+        download_stat.get_download_result()["speed-test"] = entries
+
+        def snapshot_then_advance():
+            snapshot = download_stat.get_download_result_snapshot()
+            entries[1]["download_speed"] = 5000
+            return snapshot
+
+        try:
+            with mock.patch(
+                "module.desktop.get_download_result_snapshot",
+                side_effect=snapshot_then_advance,
+            ):
+                status = runtime.status()
+            self.assertEqual(len(status["downloads"]), 2)
+            self.assertEqual(status["speed"], 300)
+            self.assertEqual(
+                status["speed"], sum(item["speed"] for item in status["downloads"])
+            )
+            self.assertGreater(
+                download_stat.get_total_download_speed(), status["speed"]
+            )
+        finally:
+            download_stat.get_download_result().pop("speed-test", None)
 
     def test_config_tasks_use_chat_key_and_finished_tasks_move_to_recent(self):
         runtime = _runtime()

@@ -1,5 +1,6 @@
 """Downloads media from telegram."""
 import asyncio
+import inspect
 import logging
 import os
 import shutil
@@ -706,6 +707,13 @@ async def _download_media_with_resume(
 
     file_id_obj = FileId.decode(media_obj.file_id)
     offset = resume_size // DOWNLOAD_CHUNK_SIZE
+
+    # Establish a fresh sampling baseline before either downloader reports
+    # cumulative progress (which includes bytes retained from an earlier run).
+    if progress:
+        initial_progress = progress(resume_size, media_size, *progress_args)
+        if inspect.isawaitable(initial_progress):
+            await initial_progress
 
     network_epoch = get_network_epoch()
     file_stream = _media_stream(
