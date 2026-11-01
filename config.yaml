@@ -22,6 +22,13 @@ media_types:
 - voice
 - video_note
 download_stall_timeout: 90
+# 0 表示不限制；体积单位为 MiB，分辨率按视频短边像素计算。
+# 设置限制后，缺少对应元数据的文件会跳过。范围包含边界。
+download_limits:
+  min_size_mb: 0
+  max_size_mb: 0
+  min_video_resolution: 0
+  max_video_resolution: 0
 history_fetch_timeout: 60
 history_fetch_retries: 3
 scan_prefetch_limit: 5

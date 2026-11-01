@@ -18,6 +18,7 @@ from loguru import logger
 from ruamel import yaml
 
 from module.cloud_drive import CloudDrive, CloudDriveConfig
+from module.download_limits import validate_limits
 from module.filter import Filter
 from module.language import Language, set_language
 from utils.format import replace_date_time, validate_title
@@ -551,6 +552,7 @@ class Application:
         bool
         """
         # pylint: disable = R0912
+        validate_limits(_config.get("download_limits", {}))
         # TODO: judge the storage if enough,and provide more path
         if _config.get("save_path") is not None:
             save_path = _config["save_path"]

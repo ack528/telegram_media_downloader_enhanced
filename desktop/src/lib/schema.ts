@@ -158,6 +158,7 @@ export const PAGES: PageDef[] = [
     icon: Download,
     tabs: [
       { id: "media", label: "内容类型" },
+      { id: "limits", label: "体积与分辨率" },
       { id: "storage", label: "保存位置" },
       { id: "performance", label: "性能与重试" },
     ],
@@ -192,6 +193,7 @@ export const PAGES: PageDef[] = [
 export const SECTIONS: Record<string, SectionDef> = {
   media: { id: "media", title: "媒体类型", icon: Layers },
   formats: { id: "formats", title: "文件格式", icon: FileType2 },
+  limits: { id: "limits", title: "下载范围", icon: SlidersHorizontal, desc: "在下载前根据 Telegram 提供的元数据筛选。0 表示不限制，范围包含边界；缺少必要元数据的媒体会跳过。" },
   location: { id: "location", title: "保存路径", icon: Folder },
   naming: { id: "naming", title: "文件命名", icon: FileText },
   concurrency: { id: "concurrency", title: "并发", icon: Gauge },
@@ -225,6 +227,26 @@ const mediaSwitch = (member: string, title: string, desc: string, icon: LucideIc
 });
 
 export const SETTINGS: SettingDef[] = [
+  {
+    id: "download_limits.min_size_mb", page: "download", tab: "limits", section: "limits",
+    title: "最小文件体积", desc: "适用于所有媒体；小于此体积的文件跳过。", icon: HardDrive,
+    path: ["download_limits", "min_size_mb"], type: "number", min: 0, step: 0.1, defaultValue: 0, unit: "MiB",
+  },
+  {
+    id: "download_limits.max_size_mb", page: "download", tab: "limits", section: "limits",
+    title: "最大文件体积", desc: "适用于所有媒体；大于此体积的文件跳过。", icon: HardDrive,
+    path: ["download_limits", "max_size_mb"], type: "number", min: 0, step: 0.1, defaultValue: 0, unit: "MiB",
+  },
+  {
+    id: "download_limits.min_video_resolution", page: "download", tab: "limits", section: "limits",
+    title: "最低视频分辨率", desc: "按视频短边像素判断，横屏和竖屏均适用；以文件发送的视频不适用。", icon: Video,
+    path: ["download_limits", "min_video_resolution"], type: "number", min: 0, defaultValue: 0, unit: "像素",
+  },
+  {
+    id: "download_limits.max_video_resolution", page: "download", tab: "limits", section: "limits",
+    title: "最高视频分辨率", desc: "按视频短边像素判断，适用于视频及视频消息。", icon: Video,
+    path: ["download_limits", "max_video_resolution"], type: "number", min: 0, defaultValue: 0, unit: "像素",
+  },
   // ------------------------------------------------------------ download / media
   mediaSwitch("video", "视频", "关闭后，频道中的视频不会被下载。", Video),
   mediaSwitch("photo", "图片", "关闭后，频道中的图片不会被下载。", Image),

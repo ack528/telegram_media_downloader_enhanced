@@ -75,6 +75,17 @@ class ResilienceTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(status, DownloadStatus.SkipDownload)
         self.assertIsNone(file_name)
 
+    async def test_download_limits_skip_before_preparing_download(self):
+        import media_downloader
+
+        node = TaskNode(chat_id=20)
+        message = SimpleNamespace(id=1234567, chat=SimpleNamespace(id=20), video=SimpleNamespace(file_size=100, width=1920, height=1080))
+        with mock.patch.object(media_downloader.app, "config", {"download_limits": {"min_size_mb": 1}}), mock.patch("media_downloader.fetch_message", new=mock.AsyncMock(return_value=message)), mock.patch("media_downloader._get_media_meta", new=mock.AsyncMock()) as prepare:
+            status, filename = await media_downloader.download_media(None, message, ["video"], {}, node)
+        self.assertEqual(status, DownloadStatus.SkipDownload)
+        self.assertIsNone(filename)
+        prepare.assert_not_awaited()
+
     async def test_network_failure_request_switches_clash_without_active_download(self):
         import media_downloader
 

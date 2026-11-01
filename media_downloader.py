@@ -17,6 +17,7 @@ from rich.logging import RichHandler
 from module.app import Application, ChatDownloadConfig, DownloadStatus, TaskNode
 from module.bot import get_download_bot, start_download_bot, stop_download_bot
 from module.clash_controller import ClashController
+from module.download_limits import allowed_media
 from module.desktop import (
     DesktopRuntime,
     DownloadHistory,
@@ -941,6 +942,9 @@ async def download_media(
             _media = getattr(message, _type, None)
             if _media is None:
                 continue
+            if not allowed_media(_media, _type, app.config.get("download_limits", {})):
+                logger.info("Message[{}]: skipped by download limits", message.id)
+                return DownloadStatus.SkipDownload, None
             file_name, temp_file_name, file_format = await _get_media_meta(
                 node.chat_id, message, _media, _type
             )

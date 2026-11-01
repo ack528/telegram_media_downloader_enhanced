@@ -304,6 +304,29 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const saveDraft = useCallback(async (override?: ConfigObject) => {
     const edited = override ?? draft;
     if (!doc || !edited) return false;
+    const limits = edited.download_limits;
+    if (limits != null) {
+      if (typeof limits !== "object" || Array.isArray(limits)) {
+        toast("下载范围配置必须是对象", "error");
+        return false;
+      }
+      const values = limits as Record<string, unknown>;
+      for (const key of ["min_size_mb", "max_size_mb", "min_video_resolution", "max_video_resolution"]) {
+        const value = values[key];
+        if (value !== undefined && (typeof value !== "number" || !Number.isFinite(value) || value < 0)) {
+          toast("下载范围必须填写非负数字", "error");
+          return false;
+        }
+      }
+      for (const [low, high, label] of [["min_size_mb", "max_size_mb", "文件体积"], ["min_video_resolution", "max_video_resolution", "视频分辨率"]]) {
+        const min = (values[low] as number | undefined) ?? 0;
+        const max = (values[high] as number | undefined) ?? 0;
+        if (min && max && min > max) {
+          toast(`${label}的最小值不能大于最大值`, "error");
+          return false;
+        }
+      }
+    }
     setSaving(true);
     try {
       const next = await api.saveConfig(doc.config, edited);
